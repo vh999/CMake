@@ -39,6 +39,10 @@
 #  define CMAKE_USE_ECLIPSE
 #endif
 
+#if defined(CMAKE_BUILD_WITH_CMAKE)
+#  define CMAKE_USE_SLICKEDIT
+#endif
+
 #if defined(__MINGW32__) && !defined(CMAKE_BUILD_WITH_CMAKE)
 #  define CMAKE_BOOT_MINGW
 #endif
@@ -83,7 +87,13 @@
 #  include "cmExtraEclipseCDT4Generator.h"
 #endif
 
-#if defined(__APPLE__)
+#ifdef CMAKE_USE_SLICKEDIT
+# include "cmExtraSlickEditGenerator.h"
+#endif
+
+#include <stdlib.h> // required for atoi
+
+#if defined( __APPLE__ )
 #  if defined(CMAKE_BUILD_WITH_CMAKE)
 #    include "cmGlobalXCodeGenerator.h"
 
@@ -953,33 +963,12 @@ void cmake::GetRegisteredGenerators(
     }
   }
 
-  for (cmExternalMakefileProjectGeneratorFactory* eg : this->ExtraGenerators) {
-    const std::vector<std::string> genList =
-      eg->GetSupportedGlobalGenerators();
-    for (std::string const& gen : genList) {
-      GeneratorInfo info;
-      info.name = cmExternalMakefileProjectGenerator::CreateFullGeneratorName(
-        gen, eg->GetName());
-      info.baseName = gen;
-      info.extraName = eg->GetName();
-      info.supportsPlatform = false;
-      info.supportsToolset = false;
-      info.isAlias = false;
-      generators.push_back(std::move(info));
-    }
-    for (std::string const& a : eg->Aliases) {
-      GeneratorInfo info;
-      info.name = a;
-      if (!genList.empty()) {
-        info.baseName = genList.at(0);
-      }
-      info.extraName = eg->GetName();
-      info.supportsPlatform = false;
-      info.supportsToolset = false;
-      info.isAlias = true;
-      generators.push_back(std::move(info));
-    }
-  }
+#ifdef CMAKE_USE_SLICKEDIT
+  this->AddExtraGenerator(cmExtraSlickEditGenerator::GetActualName(),
+                          &cmExtraSlickEditGenerator::New);
+#endif
+
+#endif
 }
 
 static std::pair<cmExternalMakefileProjectGenerator*, std::string>

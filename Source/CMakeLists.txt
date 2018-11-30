@@ -207,6 +207,8 @@ set(SRCS
   cmExtraKateGenerator.h
   cmExtraSublimeTextGenerator.cxx
   cmExtraSublimeTextGenerator.h
+  cmExtraSlickEditGenerator.cxx
+  cmExtraSlickEditGenerator.h
   cmFileLock.cxx
   cmFileLock.h
   cmFileLockPool.cxx
