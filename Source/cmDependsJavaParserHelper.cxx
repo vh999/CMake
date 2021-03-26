@@ -2,15 +2,19 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmDependsJavaParserHelper.h"
 
-#include "cmDependsJavaLexer.h"
-#include "cmSystemTools.h"
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
+#include <utility>
+
+#include <cm/memory>
+#include <cm/string_view>
 
 #include "cmsys/FStream.hxx"
-#include <iostream>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <utility>
+
+#include "cmDependsJavaLexer.h"
+#include "cmSystemTools.h"
 
 int cmDependsJava_yyparse(yyscan_t yyscanner);
 
@@ -68,7 +72,7 @@ void cmDependsJavaParserHelper::AddClassFound(const char* sclass)
       return;
     }
   }
-  this->ClassesFound.push_back(sclass);
+  this->ClassesFound.emplace_back(sclass);
 }
 
 void cmDependsJavaParserHelper::AddPackagesImport(const char* sclass)
@@ -78,7 +82,7 @@ void cmDependsJavaParserHelper::AddPackagesImport(const char* sclass)
       return;
     }
   }
-  this->PackagesImport.push_back(sclass);
+  this->PackagesImport.emplace_back(sclass);
 }
 
 void cmDependsJavaParserHelper::SafePrintMissing(const char* str, int line,
@@ -99,7 +103,7 @@ void cmDependsJavaParserHelper::SafePrintMissing(const char* str, int line,
     std::cout << "- " << strlen(str) << std::endl;
   }
 }
-void cmDependsJavaParserHelper::Print(const char* place, const char* str)
+void cmDependsJavaParserHelper::Print(const char* place, const char* str) const
 {
   if (this->Verbose) {
     std::cout << "[" << place << "=" << str << "]" << std::endl;
@@ -166,10 +170,11 @@ void cmDependsJavaParserHelper::AllocateParserType(
     return;
   }
   this->UnionsAvailable++;
-  pt->str = new char[len + 1];
+  auto up = cm::make_unique<char[]>(len + 1);
+  pt->str = up.get();
   strncpy(pt->str, str, len);
   pt->str[len] = 0;
-  this->Allocates.push_back(pt->str);
+  this->Allocates.push_back(std::move(up));
 }
 
 void cmDependsJavaParserHelper::StartClass(const char* cls)
@@ -272,10 +277,7 @@ int cmDependsJavaParserHelper::ParseString(const char* str, int verb)
 
 void cmDependsJavaParserHelper::CleanupParser()
 {
-  for (char* allocate : this->Allocates) {
-    delete[] allocate;
-  }
-  this->Allocates.erase(this->Allocates.begin(), this->Allocates.end());
+  this->Allocates.clear();
 }
 
 int cmDependsJavaParserHelper::LexInput(char* buf, int maxlen)
@@ -298,14 +300,10 @@ void cmDependsJavaParserHelper::Error(const char* str)
   unsigned long pos = static_cast<unsigned long>(this->InputBufferPos);
   fprintf(stderr, "JPError: %s (%lu / Line: %d)\n", str, pos,
           this->CurrentLine);
-  int cc;
-  std::cerr << "String: [";
-  for (cc = 0;
-       cc < 30 && *(this->InputBuffer.c_str() + this->InputBufferPos + cc);
-       cc++) {
-    std::cerr << *(this->InputBuffer.c_str() + this->InputBufferPos + cc);
-  }
-  std::cerr << "]" << std::endl;
+  std::cerr << "String: ["
+            << cm::string_view{ this->InputBuffer }.substr(
+                 this->InputBufferPos, 30)
+            << "]" << std::endl;
 }
 
 void cmDependsJavaParserHelper::UpdateCombine(const char* str1,

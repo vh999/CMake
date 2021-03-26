@@ -15,13 +15,16 @@ projects (Database, Website, etc.) are not supported.
 Platform Selection
 ^^^^^^^^^^^^^^^^^^
 
-The :variable:`CMAKE_GENERATOR_PLATFORM` variable may be set, perhaps
-via the :manual:`cmake(1)` ``-A`` option, to specify a target platform
-name (architecture).  For example:
+The default target platform name (architecture) is ``Win32``.
 
-* ``cmake -G "Visual Studio 10 2010" -A Win32``
-* ``cmake -G "Visual Studio 10 2010" -A x64``
-* ``cmake -G "Visual Studio 10 2010" -A Itanium``
+.. versionadded:: 3.1
+  The :variable:`CMAKE_GENERATOR_PLATFORM` variable may be set, perhaps
+  via the :manual:`cmake(1)` ``-A`` option, to specify a target platform
+  name (architecture).  For example:
+
+  * ``cmake -G "Visual Studio 10 2010" -A Win32``
+  * ``cmake -G "Visual Studio 10 2010" -A x64``
+  * ``cmake -G "Visual Studio 10 2010" -A Itanium``
 
 For compatibility with CMake versions prior to 3.1, one may specify
 a target platform name optionally at the end of the generator name.

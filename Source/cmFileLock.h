@@ -1,7 +1,6 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmFileLock_h
-#define cmFileLock_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
@@ -21,11 +20,14 @@ class cmFileLockResult;
  */
 class cmFileLock
 {
-  CM_DISABLE_COPY(cmFileLock)
-
 public:
   cmFileLock();
   ~cmFileLock();
+
+  cmFileLock(cmFileLock const&) = delete;
+  cmFileLock(cmFileLock&&) noexcept;
+  cmFileLock& operator=(cmFileLock const&) = delete;
+  cmFileLock& operator=(cmFileLock&&) noexcept;
 
   /**
    * @brief Lock the file.
@@ -51,15 +53,12 @@ private:
   cmFileLockResult LockWithTimeout(unsigned long timeoutSec);
 
 #if defined(_WIN32)
-  typedef HANDLE FileId;
+  HANDLE File = INVALID_HANDLE_VALUE;
   BOOL LockFile(DWORD flags);
 #else
-  typedef int FileId;
-  int LockFile(int cmd, int type);
+  int File = -1;
+  int LockFile(int cmd, int type) const;
 #endif
 
-  FileId File;
   std::string Filename;
 };
-
-#endif // cmFileLock_h

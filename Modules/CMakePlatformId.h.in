@@ -32,9 +32,6 @@
 #elif defined(_AIX) || defined(__AIX) || defined(__AIX__) || defined(__aix) || defined(__aix__)
 # define PLATFORM_ID "AIX"
 
-#elif defined(__sgi) || defined(__sgi__) || defined(_SGI)
-# define PLATFORM_ID "IRIX"
-
 #elif defined(__hpux) || defined(__hpux__)
 # define PLATFORM_ID "HP-UX"
 
@@ -90,8 +87,19 @@
 # elif defined(__WINDOWS__)
 #  define PLATFORM_ID "Windows3x"
 
+# elif defined(__VXWORKS__)
+#  define PLATFORM_ID "VxWorks"
+
 # else /* unknown platform */
 #  define PLATFORM_ID
+# endif
+
+#elif defined(__INTEGRITY)
+# if defined(INT_178B)
+#  define PLATFORM_ID "Integrity178"
+
+# else /* regular Integrity */
+#  define PLATFORM_ID "Integrity"
 # endif
 
 #else /* unknown platform */
@@ -107,6 +115,9 @@
 #if defined(_WIN32) && defined(_MSC_VER)
 # if defined(_M_IA64)
 #  define ARCHITECTURE_ID "IA64"
+
+# elif defined(_M_ARM64EC)
+#  define ARCHITECTURE_ID "ARM64EC"
 
 # elif defined(_M_X64) || defined(_M_AMD64)
 #  define ARCHITECTURE_ID "x64"
@@ -151,12 +162,74 @@
 # if defined(__ICCARM__)
 #  define ARCHITECTURE_ID "ARM"
 
+# elif defined(__ICCRX__)
+#  define ARCHITECTURE_ID "RX"
+
+# elif defined(__ICCRH850__)
+#  define ARCHITECTURE_ID "RH850"
+
+# elif defined(__ICCRL78__)
+#  define ARCHITECTURE_ID "RL78"
+
+# elif defined(__ICCRISCV__)
+#  define ARCHITECTURE_ID "RISCV"
+
 # elif defined(__ICCAVR__)
 #  define ARCHITECTURE_ID "AVR"
+
+# elif defined(__ICC430__)
+#  define ARCHITECTURE_ID "MSP430"
+
+# elif defined(__ICCV850__)
+#  define ARCHITECTURE_ID "V850"
+
+# elif defined(__ICC8051__)
+#  define ARCHITECTURE_ID "8051"
+
+# elif defined(__ICCSTM8__)
+#  define ARCHITECTURE_ID "STM8"
 
 # else /* unknown architecture */
 #  define ARCHITECTURE_ID ""
 # endif
+
+#elif defined(__ghs__)
+# if defined(__PPC64__)
+#  define ARCHITECTURE_ID "PPC64"
+
+# elif defined(__ppc__)
+#  define ARCHITECTURE_ID "PPC"
+
+# elif defined(__ARM__)
+#  define ARCHITECTURE_ID "ARM"
+
+# elif defined(__x86_64__)
+#  define ARCHITECTURE_ID "x64"
+
+# elif defined(__i386__)
+#  define ARCHITECTURE_ID "X86"
+
+# else /* unknown architecture */
+#  define ARCHITECTURE_ID ""
+# endif
+
+#elif defined(__TI_COMPILER_VERSION__)
+# if defined(__TI_ARM__)
+#  define ARCHITECTURE_ID "ARM"
+
+# elif defined(__MSP430__)
+#  define ARCHITECTURE_ID "MSP430"
+
+# elif defined(__TMS320C28XX__)
+#  define ARCHITECTURE_ID "TMS320C28x"
+
+# elif defined(__TMS320C6X__) || defined(_TMS320C6X)
+#  define ARCHITECTURE_ID "TMS320C6x"
+
+# else /* unknown architecture */
+#  define ARCHITECTURE_ID ""
+# endif
+
 #else
 #  define ARCHITECTURE_ID
 #endif
@@ -234,4 +307,3 @@ char const info_simulate_version[] = {
    array rather than assigning a pointer to a static array.  */
 char const* info_platform = "INFO" ":" "platform[" PLATFORM_ID "]";
 char const* info_arch = "INFO" ":" "arch[" ARCHITECTURE_ID "]";
-

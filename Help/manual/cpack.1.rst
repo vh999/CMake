@@ -48,11 +48,15 @@ Options
   the :variable:`CPACK_GENERATOR` variable determines the default set of
   generators that will be used.
 
-``-C <Configuration>``
-  Specify the project configuration to be packaged (e.g. ``Debug``,
-  ``Release``, etc.).  When the CMake project uses a multi-configuration
+``-C <configs>``
+  Specify the project configuration(s) to be packaged (e.g. ``Debug``,
+  ``Release``, etc.), where ``<configs>`` is a
+  :ref:`semicolon-separated list <CMake Language Lists>`.
+  When the CMake project uses a multi-configuration
   generator such as Xcode or Visual Studio, this option is needed to tell
   ``cpack`` which built executables to include in the package.
+  The user is responsible for ensuring that the configuration(s) listed
+  have already been built before invoking ``cpack``.
 
 ``-D <var>=<value>``
   Set a CPack variable.  This will override any value set for ``<var>`` in the
@@ -63,7 +67,7 @@ Options
   details.  By default, ``CPackConfig.cmake`` in the current directory will
   be used.
 
-``--verbose,-V``
+``--verbose, -V``
   Run ``cpack`` with verbose output.  This can be used to show more details
   from the package generation tools and is suitable for project developers.
 

@@ -1,4 +1,6 @@
 VS_SHADER_FLAGS
 ---------------
 
-Set additional VS shader flags of a ``.hlsl`` source file.
+.. versionadded:: 3.2
+
+Set additional Visual Studio shader flags of a ``.hlsl`` source file.

@@ -2,18 +2,16 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmCTestConfigureHandler.h"
 
+#include <chrono>
+#include <ostream>
+#include <string>
+
 #include "cmCTest.h"
 #include "cmDuration.h"
 #include "cmGeneratedFileStream.h"
 #include "cmXMLWriter.h"
 
-#include <chrono>
-#include <ostream>
-#include <string>
-
-cmCTestConfigureHandler::cmCTestConfigureHandler()
-{
-}
+cmCTestConfigureHandler::cmCTestConfigureHandler() = default;
 
 void cmCTestConfigureHandler::Initialize()
 {
@@ -63,7 +61,7 @@ int cmCTestConfigureHandler::ProcessHandler()
     cmCTestOptionalLog(this->CTest, HANDLER_VERBOSE_OUTPUT,
                        "Configure with command: " << cCommand << std::endl,
                        this->Quiet);
-    res = this->CTest->RunMakeCommand(cCommand.c_str(), output, &retVal,
+    res = this->CTest->RunMakeCommand(cCommand, output, &retVal,
                                       buildDirectory.c_str(),
                                       cmDuration::zero(), ofs);
 

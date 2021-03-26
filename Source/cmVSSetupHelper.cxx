@@ -2,9 +2,11 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmVSSetupHelper.h"
 
-#include "cmSystemTools.h"
 #include "cmsys/Encoding.hxx"
 #include "cmsys/FStream.hxx"
+
+#include "cmStringAlgorithms.h"
+#include "cmSystemTools.h"
 
 #ifndef VSSetupConstants
 #  define VSSetupConstants
@@ -57,8 +59,9 @@ std::string VSInstanceInfo::GetInstallLocation() const
   return loc;
 }
 
-cmVSSetupAPIHelper::cmVSSetupAPIHelper()
-  : setupConfig(NULL)
+cmVSSetupAPIHelper::cmVSSetupAPIHelper(unsigned int version)
+  : Version(version)
+  , setupConfig(NULL)
   , setupConfig2(NULL)
   , setupHelper(NULL)
   , initializationFailure(false)
@@ -88,7 +91,7 @@ bool cmVSSetupAPIHelper::SetVSInstance(std::string const& vsInstallLocation)
   return this->EnumerateAndChooseVSInstance();
 }
 
-bool cmVSSetupAPIHelper::IsVS2017Installed()
+bool cmVSSetupAPIHelper::IsVSInstalled()
 {
   return this->EnumerateAndChooseVSInstance();
 }
@@ -187,14 +190,14 @@ bool cmVSSetupAPIHelper::GetVSInstanceInfo(
   // Check if a compiler is installed with this instance.
   {
     std::string const vcRoot = vsInstanceInfo.GetInstallLocation();
-    std::string const vcToolsVersionFile =
+    std::string vcToolsVersionFile =
       vcRoot + "/VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt";
     std::string vcToolsVersion;
     cmsys::ifstream fin(vcToolsVersionFile.c_str());
     if (!fin || !cmSystemTools::GetLineFromStream(fin, vcToolsVersion)) {
       return false;
     }
-    vcToolsVersion = cmSystemTools::TrimWhitespace(vcToolsVersion);
+    vcToolsVersion = cmTrimWhitespace(vcToolsVersion);
     std::string const vcToolsDir = vcRoot + "/VC/Tools/MSVC/" + vcToolsVersion;
     if (!cmSystemTools::FileIsDirectory(vcToolsDir)) {
       return false;
@@ -255,6 +258,20 @@ bool cmVSSetupAPIHelper::GetVSInstanceInfo(std::string& vsInstallLocation)
   return isInstalled;
 }
 
+bool cmVSSetupAPIHelper::GetVSInstanceVersion(
+  unsigned long long& vsInstanceVersion)
+{
+  vsInstanceVersion = 0;
+  bool isInstalled = this->EnumerateAndChooseVSInstance();
+
+  if (isInstalled) {
+    vsInstanceVersion =
+      static_cast<unsigned long long>(chosenInstanceInfo.ullVersion);
+  }
+
+  return isInstalled;
+}
+
 bool cmVSSetupAPIHelper::GetVCToolsetVersion(std::string& vsToolsetVersion)
 {
   vsToolsetVersion.clear();
@@ -267,10 +284,43 @@ bool cmVSSetupAPIHelper::GetVCToolsetVersion(std::string& vsToolsetVersion)
   return isInstalled && !vsToolsetVersion.empty();
 }
 
+bool cmVSSetupAPIHelper::IsEWDKEnabled()
+{
+  std::string envEnterpriseWDK, envDisableRegistryUse;
+  cmSystemTools::GetEnv("EnterpriseWDK", envEnterpriseWDK);
+  cmSystemTools::GetEnv("DisableRegistryUse", envDisableRegistryUse);
+  if (!cmSystemTools::Strucmp(envEnterpriseWDK.c_str(), "True") &&
+      !cmSystemTools::Strucmp(envDisableRegistryUse.c_str(), "True")) {
+    return true;
+  }
+
+  return false;
+}
+
 bool cmVSSetupAPIHelper::EnumerateAndChooseVSInstance()
 {
   bool isVSInstanceExists = false;
   if (chosenInstanceInfo.VSInstallLocation.compare(L"") != 0) {
+    return true;
+  }
+
+  if (this->IsEWDKEnabled()) {
+    std::string envWindowsSdkDir81, envVSVersion, envVsInstallDir;
+
+    cmSystemTools::GetEnv("WindowsSdkDir_81", envWindowsSdkDir81);
+    cmSystemTools::GetEnv("VisualStudioVersion", envVSVersion);
+    cmSystemTools::GetEnv("VSINSTALLDIR", envVsInstallDir);
+    if (envVSVersion.empty() || envVsInstallDir.empty())
+      return false;
+
+    chosenInstanceInfo.VSInstallLocation =
+      std::wstring(envVsInstallDir.begin(), envVsInstallDir.end());
+    chosenInstanceInfo.Version =
+      std::wstring(envVSVersion.begin(), envVSVersion.end());
+    chosenInstanceInfo.VCToolsetVersion = envVSVersion;
+    chosenInstanceInfo.ullVersion = std::stoi(envVSVersion);
+    chosenInstanceInfo.IsWin10SDKInstalled = true;
+    chosenInstanceInfo.IsWin81SDKInstalled = !envWindowsSdkDir81.empty();
     return true;
   }
 
@@ -279,11 +329,11 @@ bool cmVSSetupAPIHelper::EnumerateAndChooseVSInstance()
     return false;
 
   std::string envVSCommonToolsDir;
+  std::string envVSCommonToolsDirEnvName =
+    "VS" + std::to_string(this->Version) + "0COMNTOOLS";
 
-  // FIXME: When we support VS versions beyond 2017, the version
-  // to choose will be passed in by the caller.  We need to map that
-  // to a per-version name of this environment variable.
-  if (cmSystemTools::GetEnv("VS150COMNTOOLS", envVSCommonToolsDir)) {
+  if (cmSystemTools::GetEnv(envVSCommonToolsDirEnvName.c_str(),
+                            envVSCommonToolsDir)) {
     cmSystemTools::ConvertToUnixSlashes(envVSCommonToolsDir);
   }
 
@@ -294,6 +344,8 @@ bool cmVSSetupAPIHelper::EnumerateAndChooseVSInstance()
       !enumInstances) {
     return false;
   }
+
+  std::wstring const wantVersion = std::to_wstring(this->Version) + L'.';
 
   SmartCOMPtr<ISetupInstance> instance;
   while (SUCCEEDED(enumInstances->Next(1, &instance, NULL)) && instance) {
@@ -310,6 +362,12 @@ bool cmVSSetupAPIHelper::EnumerateAndChooseVSInstance()
     instance = instance2 = NULL;
 
     if (isInstalled) {
+      // We are looking for a specific major version.
+      if (instanceInfo.Version.size() < wantVersion.size() ||
+          instanceInfo.Version.substr(0, wantVersion.size()) != wantVersion) {
+        continue;
+      }
+
       if (!this->SpecifiedVSInstallLocation.empty()) {
         // We are looking for a specific instance.
         std::string currentVSLocation = instanceInfo.GetInstallLocation();
@@ -322,8 +380,8 @@ bool cmVSSetupAPIHelper::EnumerateAndChooseVSInstance()
         // We are not looking for a specific instance.
         // If we've been given a hint then use it.
         if (!envVSCommonToolsDir.empty()) {
-          std::string currentVSLocation = instanceInfo.GetInstallLocation();
-          currentVSLocation += "/Common7/Tools";
+          std::string currentVSLocation =
+            cmStrCat(instanceInfo.GetInstallLocation(), "/Common7/Tools");
           if (cmSystemTools::ComparePath(currentVSLocation,
                                          envVSCommonToolsDir)) {
             chosenInstanceInfo = instanceInfo;

@@ -63,6 +63,11 @@ function(get_unix_permissions_octal_notation PERMISSIONS_VAR RETURN_VAR)
   set(${RETURN_VAR} "${OWNER_PERMISSIONS}${GROUP_PERMISSIONS}${WORLD_PERMISSIONS}" PARENT_SCOPE)
 endfunction()
 
+function(cpack_rpm_exact_regex regex_var string)
+  string(REGEX REPLACE "([][+.*()^])" "\\\\\\1" regex "${string}")
+  set("${regex_var}" "${regex}" PARENT_SCOPE)
+endfunction()
+
 function(cpack_rpm_prepare_relocation_paths)
   # set appropriate prefix, remove possible trailing slash and convert backslashes to slashes
   if(CPACK_RPM_${CPACK_RPM_PACKAGE_COMPONENT}_PACKAGE_PREFIX)
@@ -482,7 +487,9 @@ function(cpack_rpm_prepare_install_files INSTALL_FILES_LIST WDIR PACKAGE_PREFIXE
         # recalculate path length after conversion to canonical form
         string(LENGTH "${SYMLINK_POINT_}" SYMLINK_POINT_LENGTH_)
 
-        if(SYMLINK_POINT_ MATCHES "${WDIR}/.*")
+        cpack_rpm_exact_regex(IN_SYMLINK_POINT_REGEX "${WDIR}")
+        string(APPEND IN_SYMLINK_POINT_REGEX "/.*")
+        if(SYMLINK_POINT_ MATCHES "${IN_SYMLINK_POINT_REGEX}")
           # only symlinks that are pointing inside the packaging structure should be checked for relocation
           string(SUBSTRING "${SYMLINK_POINT_}" ${WDR_LEN_} -1 SYMLINK_POINT_WD_)
           cpack_rpm_symlink_get_relocation_prefixes("${F}" "${PACKAGE_PREFIXES}" "SYMLINK_RELOCATIONS")
@@ -837,8 +844,8 @@ function(cpack_rpm_generate_package)
     endif()
   endif()
 
-  if(NOT CPACK_RPM_PACKAGE_URL AND CMAKE_PROJECT_HOMEPAGE_URL)
-    set(CPACK_RPM_PACKAGE_URL "${CMAKE_PROJECT_HOMEPAGE_URL}")
+  if(NOT CPACK_RPM_PACKAGE_URL AND CPACK_PACKAGE_HOMEPAGE_URL)
+    set(CPACK_RPM_PACKAGE_URL "${CPACK_PACKAGE_HOMEPAGE_URL}")
   endif()
 
   # CPACK_RPM_PACKAGE_NAME (mandatory)
@@ -1092,16 +1099,18 @@ function(cpack_rpm_generate_package)
 
   # CPACK_RPM_POST_INSTALL_SCRIPT_FILE (or CPACK_RPM_<COMPONENT>_POST_INSTALL_SCRIPT_FILE)
   # CPACK_RPM_POST_UNINSTALL_SCRIPT_FILE (or CPACK_RPM_<COMPONENT>_POST_UNINSTALL_SCRIPT_FILE)
-  # May be used to embed a post (un)installation script in the spec file.
+  # CPACK_RPM_POST_TRANS_SCRIPT_FILE (or CPACK_RPM_<COMPONENT>_POST_TRANS_SCRIPT_FILE)
+  # May be used to embed a post installation/uninstallation/transaction script in the spec file.
   # The referred script file(s) will be read and directly
-  # put after the %post or %postun section
+  # put after the %post or %postun or %posttrans section
   # ----------------------------------------------------------------
   # CPACK_RPM_PRE_INSTALL_SCRIPT_FILE (or CPACK_RPM_<COMPONENT>_PRE_INSTALL_SCRIPT_FILE)
   # CPACK_RPM_PRE_UNINSTALL_SCRIPT_FILE (or CPACK_RPM_<COMPONENT>_PRE_UNINSTALL_SCRIPT_FILE)
-  # May be used to embed a pre (un)installation script in the spec file.
+  # CPACK_RPM_PRE_TRANS_SCRIPT_FILE (or CPACK_RPM_<COMPONENT>_PRE_TRANS_SCRIPT_FILE)
+  # May be used to embed a pre installation/uninstallation/transaction script in the spec file.
   # The referred script file(s) will be read and directly
-  # put after the %pre or %preun section
-  foreach(RPM_SCRIPT_FILE_TYPE_ "INSTALL" "UNINSTALL")
+  # put after the %pre or %preun or %pretrans section
+  foreach(RPM_SCRIPT_FILE_TYPE_ "INSTALL" "UNINSTALL" "TRANS")
     foreach(RPM_SCRIPT_FILE_TIME_ "PRE" "POST")
       set("CPACK_RPM_${RPM_SCRIPT_FILE_TIME_}_${RPM_SCRIPT_FILE_TYPE_}_READ_FILE"
         "${CPACK_RPM_${RPM_SCRIPT_FILE_TIME_}_${RPM_SCRIPT_FILE_TYPE_}_SCRIPT_FILE}")
@@ -1151,7 +1160,9 @@ function(cpack_rpm_generate_package)
 
   # Now we may create the RPM build tree structure
   set(CPACK_RPM_ROOTDIR "${CPACK_TOPLEVEL_DIRECTORY}")
-  message(STATUS "CPackRPM:Debug: Using CPACK_RPM_ROOTDIR=${CPACK_RPM_ROOTDIR}")
+  if(CPACK_RPM_PACKAGE_DEBUG)
+    message("CPackRPM:Debug: Using CPACK_RPM_ROOTDIR=${CPACK_RPM_ROOTDIR}")
+  endif()
   # Prepare RPM build tree
   file(MAKE_DIRECTORY ${CPACK_RPM_ROOTDIR})
   file(MAKE_DIRECTORY ${CPACK_RPM_ROOTDIR}/tmp)
@@ -1718,11 +1729,17 @@ mv %_topdir/tmpBBroot $RPM_BUILD_ROOT
 \@RPM_SYMLINK_POSTINSTALL\@
 \@CPACK_RPM_SPEC_POSTINSTALL\@
 
+%posttrans
+\@CPACK_RPM_SPEC_POSTTRANS\@
+
 %postun
 \@CPACK_RPM_SPEC_POSTUNINSTALL\@
 
 %pre
 \@CPACK_RPM_SPEC_PREINSTALL\@
+
+%pretrans
+\@CPACK_RPM_SPEC_PRETRANS\@
 
 %preun
 \@CPACK_RPM_SPEC_PREUNINSTALL\@

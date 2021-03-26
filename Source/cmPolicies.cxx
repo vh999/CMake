@@ -1,19 +1,21 @@
 #include "cmPolicies.h"
 
-#include "cmAlgorithms.h"
+#include <cassert>
+#include <cctype>
+#include <cstdio>
+#include <cstring>
+#include <sstream>
+#include <vector>
+
+#include "cmListFileCache.h"
 #include "cmMakefile.h"
+#include "cmMessageType.h"
 #include "cmState.h"
+#include "cmStateSnapshot.h"
 #include "cmStateTypes.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
 #include "cmVersion.h"
-#include "cmake.h"
-
-#include <assert.h>
-#include <ctype.h>
-#include <sstream>
-#include <stdio.h>
-#include <string.h>
-#include <vector>
 
 static bool stringToId(const char* input, cmPolicies::PolicyID& pid)
 {
@@ -34,7 +36,7 @@ static bool stringToId(const char* input, cmPolicies::PolicyID& pid)
     }
   }
   long id;
-  if (!cmSystemTools::StringToLong(input + 3, &id)) {
+  if (!cmStrToLong(input + 3, &id)) {
     return false;
   }
   if (id >= cmPolicies::CMPCOUNT) {
@@ -72,6 +74,7 @@ static const char* idToVersion(cmPolicies::PolicyID id)
 #define POLICY_CASE(ID, V_MAJOR, V_MINOR, V_PATCH)                            \
   case cmPolicies::ID:                                                        \
     return #V_MAJOR "." #V_MINOR "." #V_PATCH;
+    // NOLINTNEXTLINE(bugprone-branch-clone)
     CM_FOR_EACH_POLICY_ID_VERSION(POLICY_CASE)
 #undef POLICY_CASE
     case cmPolicies::CMPCOUNT:
@@ -90,6 +93,7 @@ static bool isPolicyNewerThan(cmPolicies::PolicyID id, unsigned int majorV,
             (majorV == (V_MAJOR) && minorV + 1 < (V_MINOR) + 1) ||            \
             (majorV == (V_MAJOR) && minorV == (V_MINOR) &&                    \
              patchV + 1 < (V_PATCH) + 1));
+    // NOLINTNEXTLINE(bugprone-branch-clone)
     CM_FOR_EACH_POLICY_ID_VERSION(POLICY_CASE)
 #undef POLICY_CASE
     case cmPolicies::CMPCOUNT:
@@ -128,7 +132,7 @@ static void DiagnoseAncientPolicies(
     << "Please either update your CMakeLists.txt files to conform to "
     << "the new behavior or use an older version of CMake that still "
     << "supports the old behavior.";
-  mf->IssueMessage(cmake::FATAL_ERROR, e.str());
+  mf->IssueMessage(MessageType::FATAL_ERROR, e.str());
 }
 
 static bool GetPolicyDefault(cmMakefile* mf, std::string const& policy,
@@ -145,8 +149,8 @@ static bool GetPolicyDefault(cmMakefile* mf, std::string const& policy,
   } else {
     std::ostringstream e;
     e << defaultVar << " has value \"" << defaultValue
-      << "\" but must be \"OLD\", \"NEW\", or \"\" (empty).";
-    mf->IssueMessage(cmake::FATAL_ERROR, e.str());
+      << R"(" but must be "OLD", "NEW", or "" (empty).)";
+    mf->IssueMessage(MessageType::FATAL_ERROR, e.str());
     return false;
   }
 
@@ -155,7 +159,8 @@ static bool GetPolicyDefault(cmMakefile* mf, std::string const& policy,
 
 bool cmPolicies::ApplyPolicyVersion(cmMakefile* mf,
                                     std::string const& version_min,
-                                    std::string const& version_max)
+                                    std::string const& version_max,
+                                    WarnCompat warnCompat)
 {
   // Parse components of the minimum version.
   unsigned int minMajor = 2;
@@ -167,14 +172,14 @@ bool cmPolicies::ApplyPolicyVersion(cmMakefile* mf,
     std::ostringstream e;
     e << "Invalid policy version value \"" << version_min << "\".  "
       << "A numeric major.minor[.patch[.tweak]] must be given.";
-    mf->IssueMessage(cmake::FATAL_ERROR, e.str());
+    mf->IssueMessage(MessageType::FATAL_ERROR, e.str());
     return false;
   }
 
   // it is an error if the policy version is less than 2.4
   if (minMajor < 2 || (minMajor == 2 && minMinor < 4)) {
     mf->IssueMessage(
-      cmake::FATAL_ERROR,
+      MessageType::FATAL_ERROR,
       "Compatibility with CMake < 2.4 is not supported by CMake >= 3.0.  "
       "For compatibility with older versions please use any CMake 2.8.x "
       "release or lower.");
@@ -199,7 +204,7 @@ bool cmPolicies::ApplyPolicyVersion(cmMakefile* mf,
       << "This is not allowed because the greater version may have new "
       << "policies not known to this CMake.  "
       << "You may need a newer CMake version to build this project.";
-    mf->IssueMessage(cmake::FATAL_ERROR, e.str());
+    mf->IssueMessage(MessageType::FATAL_ERROR, e.str());
     return false;
   }
 
@@ -218,7 +223,7 @@ bool cmPolicies::ApplyPolicyVersion(cmMakefile* mf,
       std::ostringstream e;
       e << "Invalid policy max version value \"" << version_max << "\".  "
         << "A numeric major.minor[.patch[.tweak]] must be given.";
-      mf->IssueMessage(cmake::FATAL_ERROR, e.str());
+      mf->IssueMessage(MessageType::FATAL_ERROR, e.str());
       return false;
     }
 
@@ -232,7 +237,7 @@ bool cmPolicies::ApplyPolicyVersion(cmMakefile* mf,
       e << "Policy VERSION range \"" << version_min << "..." << version_max
         << "\""
         << " specifies a larger minimum than maximum.";
-      mf->IssueMessage(cmake::FATAL_ERROR, e.str());
+      mf->IssueMessage(MessageType::FATAL_ERROR, e.str());
       return false;
     }
 
@@ -242,13 +247,34 @@ bool cmPolicies::ApplyPolicyVersion(cmMakefile* mf,
     polPatch = maxPatch;
   }
 
-  return cmPolicies::ApplyPolicyVersion(mf, polMajor, polMinor, polPatch);
+  return cmPolicies::ApplyPolicyVersion(mf, polMajor, polMinor, polPatch,
+                                        warnCompat);
 }
 
 bool cmPolicies::ApplyPolicyVersion(cmMakefile* mf, unsigned int majorVer,
                                     unsigned int minorVer,
-                                    unsigned int patchVer)
+                                    unsigned int patchVer,
+                                    WarnCompat warnCompat)
 {
+  // Warn about policy versions for which support will be removed.
+  if (warnCompat == WarnCompat::On &&
+      (majorVer < 2 || (majorVer == 2 && minorVer < 8) ||
+       (majorVer == 2 && minorVer == 8 && patchVer < 12)) &&
+      // Avoid warning on calls generated by install(EXPORT)
+      // in CMake versions prior to 3.18.
+      !(majorVer == 2 && minorVer == 6 && patchVer == 0 &&
+        mf->GetStateSnapshot().CanPopPolicyScope() &&
+        cmSystemTools::Strucmp(mf->GetBacktrace().Top().Name.c_str(),
+                               "cmake_policy") == 0)) {
+    mf->IssueMessage(
+      MessageType::DEPRECATION_WARNING,
+      "Compatibility with CMake < 2.8.12 will be removed from "
+      "a future version of CMake.\n"
+      "Update the VERSION argument <min> value or use a ...<max> suffix "
+      "to tell CMake that the project does not need compatibility with "
+      "older versions.");
+  }
+
   // now loop over all the policies and set them as appropriate
   std::vector<cmPolicies::PolicyID> ancientPolicies;
   for (PolicyID pid = cmPolicies::CMP0000; pid != cmPolicies::CMPCOUNT;
@@ -299,7 +325,7 @@ bool cmPolicies::GetPolicyID(const char* id, cmPolicies::PolicyID& pid)
   return stringToId(id, pid);
 }
 
-///! return a warning string for a given policy
+//! return a warning string for a given policy
 std::string cmPolicies::GetPolicyWarning(cmPolicies::PolicyID id)
 {
   std::ostringstream msg;
@@ -333,7 +359,7 @@ std::string cmPolicies::GetPolicyDeprecatedWarning(cmPolicies::PolicyID id)
   return msg.str();
 }
 
-///! return an error string for when a required policy is unspecified
+//! return an error string for when a required policy is unspecified
 std::string cmPolicies::GetRequiredPolicyError(cmPolicies::PolicyID id)
 {
   std::ostringstream error;
@@ -359,7 +385,7 @@ std::string cmPolicies::GetRequiredPolicyError(cmPolicies::PolicyID id)
   return error.str();
 }
 
-///! Get the default status for a policy
+//! Get the default status for a policy
 cmPolicies::PolicyStatus cmPolicies::GetPolicyStatus(
   cmPolicies::PolicyID /*unused*/)
 {

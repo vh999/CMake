@@ -10,15 +10,23 @@ Find the XML processing library (libxml2).
 IMPORTED Targets
 ^^^^^^^^^^^^^^^^
 
-This module defines :prop_tgt:`IMPORTED` target ``LibXml2::LibXml2``, if
-libxml2 has been found.
+.. versionadded:: 3.12
+
+The following :prop_tgt:`IMPORTED` targets may be defined:
+
+``LibXml2::LibXml2``
+  libxml2 library.
+``LibXml2::xmllint``
+  .. versionadded:: 3.17
+
+  xmllint command-line executable.
 
 Result variables
 ^^^^^^^^^^^^^^^^
 
 This module will set the following variables in your project:
 
-``LIBXML2_FOUND``
+``LibXml2_FOUND``
   true if libxml2 headers and libraries were found
 ``LIBXML2_INCLUDE_DIR``
   the directory containing LibXml2 headers
@@ -48,7 +56,6 @@ The following cache variables may also be set:
 # in the find_path() and find_library() calls
 find_package(PkgConfig QUIET)
 PKG_CHECK_MODULES(PC_LIBXML QUIET libxml-2.0)
-set(LIBXML2_DEFINITIONS ${PC_LIBXML_CFLAGS_OTHER})
 
 find_path(LIBXML2_INCLUDE_DIR NAMES libxml/xpath.h
    HINTS
@@ -64,7 +71,7 @@ if(DEFINED LIBXML2_LIBRARIES AND NOT DEFINED LIBXML2_LIBRARY)
   set(LIBXML2_LIBRARY ${LIBXML2_LIBRARIES})
 endif()
 
-find_library(LIBXML2_LIBRARY NAMES xml2 libxml2
+find_library(LIBXML2_LIBRARY NAMES xml2 libxml2 libxml2_a
    HINTS
    ${PC_LIBXML_LIBDIR}
    ${PC_LIBXML_LIBRARY_DIRS}
@@ -74,9 +81,7 @@ find_program(LIBXML2_XMLLINT_EXECUTABLE xmllint)
 # for backwards compat. with KDE 4.0.x:
 set(XMLLINT_EXECUTABLE "${LIBXML2_XMLLINT_EXECUTABLE}")
 
-if(PC_LIBXML_VERSION)
-    set(LIBXML2_VERSION_STRING ${PC_LIBXML_VERSION})
-elseif(LIBXML2_INCLUDE_DIR AND EXISTS "${LIBXML2_INCLUDE_DIR}/libxml/xmlversion.h")
+if(LIBXML2_INCLUDE_DIR AND EXISTS "${LIBXML2_INCLUDE_DIR}/libxml/xmlversion.h")
     file(STRINGS "${LIBXML2_INCLUDE_DIR}/libxml/xmlversion.h" libxml2_version_str
          REGEX "^#define[\t ]+LIBXML_DOTTED_VERSION[\t ]+\".*\"")
 
@@ -85,8 +90,19 @@ elseif(LIBXML2_INCLUDE_DIR AND EXISTS "${LIBXML2_INCLUDE_DIR}/libxml/xmlversion.
     unset(libxml2_version_str)
 endif()
 
-set(LIBXML2_INCLUDE_DIRS ${LIBXML2_INCLUDE_DIR} ${PC_LIBXML_INCLUDE_DIRS})
+set(LIBXML2_INCLUDE_DIRS ${LIBXML2_INCLUDE_DIR})
 set(LIBXML2_LIBRARIES ${LIBXML2_LIBRARY})
+
+# Did we find the same installation as pkg-config?
+# If so, use additional information from it.
+unset(LIBXML2_DEFINITIONS)
+foreach(libxml2_pc_lib_dir IN LISTS PC_LIBXML_LIBDIR PC_LIBXML_LIBRARY_DIRS)
+  if (LIBXML2_LIBRARY MATCHES "^${libxml2_pc_lib_dir}")
+    list(APPEND LIBXML2_INCLUDE_DIRS ${PC_LIBXML_INCLUDE_DIRS})
+    set(LIBXML2_DEFINITIONS ${PC_LIBXML_CFLAGS_OTHER})
+    break()
+  endif()
+endforeach()
 
 include(${CMAKE_CURRENT_LIST_DIR}/FindPackageHandleStandardArgs.cmake)
 FIND_PACKAGE_HANDLE_STANDARD_ARGS(LibXml2
@@ -96,7 +112,13 @@ FIND_PACKAGE_HANDLE_STANDARD_ARGS(LibXml2
 mark_as_advanced(LIBXML2_INCLUDE_DIR LIBXML2_LIBRARY LIBXML2_XMLLINT_EXECUTABLE)
 
 if(LibXml2_FOUND AND NOT TARGET LibXml2::LibXml2)
-   add_library(LibXml2::LibXml2 UNKNOWN IMPORTED)
-   set_target_properties(LibXml2::LibXml2 PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${LIBXML2_INCLUDE_DIRS}")
-   set_property(TARGET LibXml2::LibXml2 APPEND PROPERTY IMPORTED_LOCATION "${LIBXML2_LIBRARY}")
+  add_library(LibXml2::LibXml2 UNKNOWN IMPORTED)
+  set_target_properties(LibXml2::LibXml2 PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${LIBXML2_INCLUDE_DIRS}")
+  set_target_properties(LibXml2::LibXml2 PROPERTIES INTERFACE_COMPILE_OPTIONS "${LIBXML2_DEFINITIONS}")
+  set_property(TARGET LibXml2::LibXml2 APPEND PROPERTY IMPORTED_LOCATION "${LIBXML2_LIBRARY}")
+endif()
+
+if(LIBXML2_XMLLINT_EXECUTABLE AND NOT TARGET LibXml2::xmllint)
+  add_executable(LibXml2::xmllint IMPORTED)
+  set_target_properties(LibXml2::xmllint PROPERTIES IMPORTED_LOCATION "${LIBXML2_XMLLINT_EXECUTABLE}")
 endif()

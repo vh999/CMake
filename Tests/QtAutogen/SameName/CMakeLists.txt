@@ -1,6 +1,9 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.16.0)
 project(SameName)
-include("../AutogenTest.cmake")
+include("../AutogenGuiTest.cmake")
+
+# Process .hh headers in AUTOMOC
+cmake_policy(SET CMP0100 NEW)
 
 # Test AUTOMOC and AUTORCC on source files with the same name
 # but in different subdirectories
@@ -17,6 +20,12 @@ add_executable(sameName
   ccc/item.cpp
   ccc/data.qrc
   item.cpp
+  object.h
+  object.hh
+  object.h++
+  object.hpp
+  object.hxx
+  object_upper_ext.H
   data.qrc
   main.cpp
 )
@@ -33,7 +42,7 @@ if (QT_TEST_VERSION EQUAL 4)
 else()
   set(rccCompress "--compress")
 endif()
-set_target_properties(sameName PROPERTIES AUTORCC_OPTIONS "${rccCompress};0" )
-set_source_files_properties(aaa/data.qrc PROPERTIES AUTORCC_OPTIONS "${rccCompress};1" )
-set_source_files_properties(bbb/data.qrc PROPERTIES AUTORCC_OPTIONS "${rccCompress};2" )
-set_source_files_properties(ccc/data.qrc PROPERTIES AUTORCC_OPTIONS "${rccCompress};3" )
+set_target_properties(sameName PROPERTIES AUTORCC_OPTIONS "${rccCompress};1" )
+set_source_files_properties(aaa/data.qrc PROPERTIES AUTORCC_OPTIONS "${rccCompress};2" )
+set_source_files_properties(bbb/data.qrc PROPERTIES AUTORCC_OPTIONS "${rccCompress};3" )
+set_source_files_properties(ccc/data.qrc PROPERTIES AUTORCC_OPTIONS "${rccCompress};4" )

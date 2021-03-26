@@ -1,19 +1,20 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmComputeLinkDepends_h
-#define cmComputeLinkDepends_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmGraphAdjacencyList.h"
-#include "cmLinkItem.h"
-#include "cmTargetLinkLibraryType.h"
-
 #include <map>
+#include <memory>
 #include <queue>
 #include <set>
 #include <string>
 #include <vector>
+
+#include "cmGraphAdjacencyList.h"
+#include "cmLinkItem.h"
+#include "cmListFileCache.h"
+#include "cmTargetLinkLibraryType.h"
 
 class cmComputeComponentGraph;
 class cmGeneratorTarget;
@@ -31,30 +32,19 @@ public:
                        const std::string& config);
   ~cmComputeLinkDepends();
 
+  cmComputeLinkDepends(const cmComputeLinkDepends&) = delete;
+  cmComputeLinkDepends& operator=(const cmComputeLinkDepends&) = delete;
+
   // Basic information about each link item.
   struct LinkEntry
   {
-    std::string Item;
-    cmGeneratorTarget const* Target;
-    bool IsSharedDep;
-    bool IsFlag;
-    LinkEntry()
-      : Item()
-      , Target(nullptr)
-      , IsSharedDep(false)
-      , IsFlag(false)
-    {
-    }
-    LinkEntry(LinkEntry const& r)
-      : Item(r.Item)
-      , Target(r.Target)
-      , IsSharedDep(r.IsSharedDep)
-      , IsFlag(r.IsFlag)
-    {
-    }
+    BT<std::string> Item;
+    cmGeneratorTarget const* Target = nullptr;
+    bool IsSharedDep = false;
+    bool IsFlag = false;
   };
 
-  typedef std::vector<LinkEntry> EntryVector;
+  using EntryVector = std::vector<LinkEntry>;
   EntryVector const& Compute();
 
   void SetOldLinkDirMode(bool b);
@@ -116,14 +106,15 @@ private:
   };
   struct DependSetList : public std::vector<DependSet>
   {
+    bool Initialized = false;
   };
-  std::vector<DependSetList*> InferredDependSets;
+  std::vector<DependSetList> InferredDependSets;
   void InferDependencies();
 
   // Ordering constraint graph adjacency list.
-  typedef cmGraphNodeList NodeList;
-  typedef cmGraphEdgeList EdgeList;
-  typedef cmGraphAdjacencyList Graph;
+  using NodeList = cmGraphNodeList;
+  using EdgeList = cmGraphEdgeList;
+  using Graph = cmGraphAdjacencyList;
   Graph EntryConstraintGraph;
   void CleanConstraintGraph();
   void DisplayConstraintGraph();
@@ -148,7 +139,7 @@ private:
     std::set<int> Entries;
   };
   std::map<int, PendingComponent> PendingComponents;
-  cmComputeComponentGraph* CCG;
+  std::unique_ptr<cmComputeComponentGraph> CCG;
   std::vector<int> FinalLinkOrder;
   void DisplayComponents();
   void VisitComponent(unsigned int c);
@@ -168,5 +159,3 @@ private:
   bool DebugMode;
   bool OldLinkDirMode;
 };
-
-#endif

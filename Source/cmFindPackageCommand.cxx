@@ -2,31 +2,37 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmFindPackageCommand.h"
 
-#include "cmSystemTools.h"
+#include <algorithm>
+#include <cassert>
+#include <cstdio>
+#include <cstring>
+#include <deque>
+#include <functional>
+#include <iterator>
+#include <sstream>
+#include <utility>
+
+#include <cm/memory>
+#include <cmext/string_view>
+
 #include "cmsys/Directory.hxx"
 #include "cmsys/FStream.hxx"
 #include "cmsys/Glob.hxx"
 #include "cmsys/RegularExpression.hxx"
 #include "cmsys/String.h"
-#include <algorithm>
-#include <assert.h>
-#include <deque>
-#include <functional>
-#include <iterator>
-#include <memory> // IWYU pragma: keep
-#include <sstream>
-#include <stdio.h>
-#include <string.h>
-#include <utility>
 
 #include "cmAlgorithms.h"
 #include "cmMakefile.h"
+#include "cmMessageType.h"
 #include "cmPolicies.h"
+#include "cmProperty.h"
+#include "cmRange.h"
 #include "cmSearchPath.h"
 #include "cmState.h"
 #include "cmStateTypes.h"
+#include "cmStringAlgorithms.h"
+#include "cmSystemTools.h"
 #include "cmVersion.h"
-#include "cmake.h"
 
 #if defined(__HAIKU__)
 #  include <FindDirectory.h>
@@ -42,6 +48,11 @@ cmFindPackageCommand::PathLabel cmFindPackageCommand::PathLabel::Builds(
   "BUILDS");
 cmFindPackageCommand::PathLabel
   cmFindPackageCommand::PathLabel::SystemRegistry("SYSTEM_PACKAGE_REGISTRY");
+
+const cm::string_view cmFindPackageCommand::VERSION_ENDPOINT_INCLUDED(
+  "INCLUDE");
+const cm::string_view cmFindPackageCommand::VERSION_ENDPOINT_EXCLUDED(
+  "EXCLUDE");
 
 struct StrverscmpGreater
 {
@@ -82,34 +93,13 @@ void cmFindPackageCommand::Sort(std::vector<std::string>::iterator begin,
   // else do not sort
 }
 
-cmFindPackageCommand::cmFindPackageCommand()
+cmFindPackageCommand::cmFindPackageCommand(cmExecutionStatus& status)
+  : cmFindCommon(status)
+  , VersionRangeMin(VERSION_ENDPOINT_INCLUDED)
+  , VersionRangeMax(VERSION_ENDPOINT_INCLUDED)
 {
   this->CMakePathName = "PACKAGE";
-  this->Quiet = false;
-  this->Required = false;
-  this->NoUserRegistry = false;
-  this->NoSystemRegistry = false;
-  this->UseConfigFiles = true;
-  this->UseFindModules = true;
   this->DebugMode = false;
-  this->UseLib32Paths = false;
-  this->UseLib64Paths = false;
-  this->UseLibx32Paths = false;
-  this->PolicyScope = true;
-  this->VersionMajor = 0;
-  this->VersionMinor = 0;
-  this->VersionPatch = 0;
-  this->VersionTweak = 0;
-  this->VersionCount = 0;
-  this->VersionExact = false;
-  this->VersionFoundMajor = 0;
-  this->VersionFoundMinor = 0;
-  this->VersionFoundPatch = 0;
-  this->VersionFoundTweak = 0;
-  this->VersionFoundCount = 0;
-  this->RequiredCMakeVersion = 0;
-  this->SortOrder = None;
-  this->SortDirection = Asc;
   this->AppendSearchPathGroups();
 
   this->DeprecatedFindModules["Qt"] = cmPolicies::CMP0084;
@@ -139,8 +129,7 @@ void cmFindPackageCommand::AppendSearchPathGroups()
     std::make_pair(PathLabel::SystemRegistry, cmSearchPath(this)));
 }
 
-bool cmFindPackageCommand::InitialPass(std::vector<std::string> const& args,
-                                       cmExecutionStatus&)
+bool cmFindPackageCommand::InitialPass(std::vector<std::string> const& args)
 {
   if (args.empty()) {
     this->SetError("called with incorrect number of arguments");
@@ -148,20 +137,20 @@ bool cmFindPackageCommand::InitialPass(std::vector<std::string> const& args,
   }
 
   // Lookup required version of CMake.
-  if (const char* rv =
+  if (cmProp rv =
         this->Makefile->GetDefinition("CMAKE_MINIMUM_REQUIRED_VERSION")) {
     unsigned int v[3] = { 0, 0, 0 };
-    sscanf(rv, "%u.%u.%u", &v[0], &v[1], &v[2]);
+    sscanf(rv->c_str(), "%u.%u.%u", &v[0], &v[1], &v[2]);
     this->RequiredCMakeVersion = CMake_VERSION_ENCODE(v[0], v[1], v[2]);
   }
 
-  // Check for debug mode.
-  this->DebugMode = this->Makefile->IsOn("CMAKE_FIND_DEBUG_MODE");
+  this->DebugMode = this->ComputeIfDebugModeWanted();
+  this->DebugBuffer.clear();
 
   // Lookup target architecture, if any.
-  if (const char* arch =
+  if (cmProp arch =
         this->Makefile->GetDefinition("CMAKE_LIBRARY_ARCHITECTURE")) {
-    this->LibraryArchitecture = arch;
+    this->LibraryArchitecture = *arch;
   }
 
   // Lookup whether lib32 paths should be used.
@@ -186,31 +175,50 @@ bool cmFindPackageCommand::InitialPass(std::vector<std::string> const& args,
   }
 
   // Check if User Package Registry should be disabled
-  if (this->Makefile->IsOn("CMAKE_FIND_PACKAGE_NO_PACKAGE_REGISTRY")) {
+  // The `CMAKE_FIND_USE_PACKAGE_REGISTRY` has
+  // priority over the deprecated CMAKE_FIND_PACKAGE_NO_PACKAGE_REGISTRY
+  if (cmProp def =
+        this->Makefile->GetDefinition("CMAKE_FIND_USE_PACKAGE_REGISTRY")) {
+    this->NoUserRegistry = !cmIsOn(*def);
+  } else if (this->Makefile->IsOn("CMAKE_FIND_PACKAGE_NO_PACKAGE_REGISTRY")) {
     this->NoUserRegistry = true;
   }
 
   // Check if System Package Registry should be disabled
-  if (this->Makefile->IsOn("CMAKE_FIND_PACKAGE_NO_SYSTEM_PACKAGE_REGISTRY")) {
+  // The `CMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY` has
+  // priority over the deprecated CMAKE_FIND_PACKAGE_NO_SYSTEM_PACKAGE_REGISTRY
+  if (cmProp def = this->Makefile->GetDefinition(
+        "CMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY")) {
+    this->NoSystemRegistry = !cmIsOn(*def);
+  } else if (this->Makefile->IsOn(
+               "CMAKE_FIND_PACKAGE_NO_SYSTEM_PACKAGE_REGISTRY")) {
     this->NoSystemRegistry = true;
   }
 
+  // Check whether we should resolve symlinks when finding packages
+  if (this->Makefile->IsOn("CMAKE_FIND_PACKAGE_RESOLVE_SYMLINKS")) {
+    this->UseRealPath = true;
+  }
+
   // Check if Sorting should be enabled
-  if (const char* so =
+  if (cmProp so =
         this->Makefile->GetDefinition("CMAKE_FIND_PACKAGE_SORT_ORDER")) {
 
-    if (strcmp(so, "NAME") == 0) {
+    if (*so == "NAME") {
       this->SortOrder = Name_order;
-    } else if (strcmp(so, "NATURAL") == 0) {
+    } else if (*so == "NATURAL") {
       this->SortOrder = Natural;
     } else {
       this->SortOrder = None;
     }
   }
-  if (const char* sd =
+  if (cmProp sd =
         this->Makefile->GetDefinition("CMAKE_FIND_PACKAGE_SORT_DIRECTION")) {
-    this->SortDirection = strcmp(sd, "ASC") == 0 ? Asc : Dec;
+    this->SortDirection = (*sd == "ASC") ? Asc : Dec;
   }
+
+  // Find what search path locations have been enabled/disable
+  this->SelectDefaultSearchModes();
 
   // Find the current root path mode.
   this->SelectDefaultRootPathMode();
@@ -241,7 +249,8 @@ bool cmFindPackageCommand::InitialPass(std::vector<std::string> const& args,
     DoingHints
   };
   Doing doing = DoingNone;
-  cmsys::RegularExpression version("^[0-9.]+$");
+  cmsys::RegularExpression versionRegex(
+    R"V(^([0-9]+(\.[0-9]+)*)(\.\.\.(<?)([0-9]+(\.[0-9]+)*))?$)V");
   bool haveVersion = false;
   std::set<unsigned int> configArgs;
   std::set<unsigned int> moduleArgs;
@@ -255,9 +264,13 @@ bool cmFindPackageCommand::InitialPass(std::vector<std::string> const& args,
     } else if (args[i] == "MODULE") {
       moduleArgs.insert(i);
       doing = DoingNone;
+      // XXX(clang-tidy): https://bugs.llvm.org/show_bug.cgi?id=44165
+      // NOLINTNEXTLINE(bugprone-branch-clone)
     } else if (args[i] == "CONFIG") {
       configArgs.insert(i);
       doing = DoingNone;
+      // XXX(clang-tidy): https://bugs.llvm.org/show_bug.cgi?id=44165
+      // NOLINTNEXTLINE(bugprone-branch-clone)
     } else if (args[i] == "NO_MODULE") {
       configArgs.insert(i);
       doing = DoingNone;
@@ -294,6 +307,8 @@ bool cmFindPackageCommand::InitialPass(std::vector<std::string> const& args,
       this->NoSystemRegistry = true;
       configArgs.insert(i);
       doing = DoingNone;
+      // XXX(clang-tidy): https://bugs.llvm.org/show_bug.cgi?id=44165
+      // NOLINTNEXTLINE(bugprone-branch-clone)
     } else if (args[i] == "NO_CMAKE_BUILDS_PATH") {
       // Ignore legacy option.
       configArgs.insert(i);
@@ -331,21 +346,19 @@ bool cmFindPackageCommand::InitialPass(std::vector<std::string> const& args,
     } else if (doing == DoingConfigs) {
       if (args[i].find_first_of(":/\\") != std::string::npos ||
           cmSystemTools::GetFilenameLastExtension(args[i]) != ".cmake") {
-        std::ostringstream e;
-        e << "given CONFIGS option followed by invalid file name \"" << args[i]
-          << "\".  The names given must be file names without "
-          << "a path and with a \".cmake\" extension.";
-        this->SetError(e.str());
+        this->SetError(cmStrCat(
+          "given CONFIGS option followed by invalid file name \"", args[i],
+          "\".  The names given must be file names without "
+          "a path and with a \".cmake\" extension."));
         return false;
       }
       this->Configs.push_back(args[i]);
-    } else if (!haveVersion && version.find(args[i])) {
+    } else if (!haveVersion && versionRegex.find(args[i])) {
       haveVersion = true;
-      this->Version = args[i];
+      this->VersionComplete = args[i];
     } else {
-      std::ostringstream e;
-      e << "called with invalid argument \"" << args[i] << "\"";
-      this->SetError(e.str());
+      this->SetError(
+        cmStrCat("called with invalid argument \"", args[i], "\""));
       return false;
     }
   }
@@ -355,10 +368,10 @@ bool cmFindPackageCommand::InitialPass(std::vector<std::string> const& args,
                         optionalComponents.begin(), optionalComponents.end(),
                         std::back_inserter(doubledComponents));
   if (!doubledComponents.empty()) {
-    std::ostringstream e;
-    e << "called with components that are both required and optional:\n";
-    e << cmWrap("  ", doubledComponents, "", "\n") << "\n";
-    this->SetError(e.str());
+    this->SetError(
+      cmStrCat("called with components that are both required and "
+               "optional:\n",
+               cmWrap("  ", doubledComponents, "", "\n"), "\n"));
     return false;
   }
 
@@ -381,28 +394,26 @@ bool cmFindPackageCommand::InitialPass(std::vector<std::string> const& args,
   }
 
   // Ignore EXACT with no version.
-  if (this->Version.empty() && this->VersionExact) {
+  if (this->VersionComplete.empty() && this->VersionExact) {
     this->VersionExact = false;
     this->Makefile->IssueMessage(
-      cmake::AUTHOR_WARNING, "Ignoring EXACT since no version is requested.");
+      MessageType::AUTHOR_WARNING,
+      "Ignoring EXACT since no version is requested.");
   }
 
-  if (this->Version.empty() || components.empty()) {
+  if (this->VersionComplete.empty() || components.empty()) {
     // Check whether we are recursing inside "Find<name>.cmake" within
     // another find_package(<name>) call.
-    std::string mod = this->Name;
-    mod += "_FIND_MODULE";
+    std::string mod = cmStrCat(this->Name, "_FIND_MODULE");
     if (this->Makefile->IsOn(mod)) {
-      if (this->Version.empty()) {
+      if (this->VersionComplete.empty()) {
         // Get version information from the outer call if necessary.
         // Requested version string.
-        std::string ver = this->Name;
-        ver += "_FIND_VERSION";
-        this->Version = this->Makefile->GetSafeDefinition(ver);
+        std::string ver = cmStrCat(this->Name, "_FIND_VERSION_COMPLETE");
+        this->VersionComplete = this->Makefile->GetSafeDefinition(ver);
 
         // Whether an exact version is required.
-        std::string exact = this->Name;
-        exact += "_FIND_VERSION_EXACT";
+        std::string exact = cmStrCat(this->Name, "_FIND_VERSION_EXACT");
         this->VersionExact = this->Makefile->IsOn(exact);
       }
       if (components.empty()) {
@@ -412,43 +423,69 @@ bool cmFindPackageCommand::InitialPass(std::vector<std::string> const& args,
     }
   }
 
-  if (!this->Version.empty()) {
-    // Try to parse the version number and store the results that were
-    // successfully parsed.
-    unsigned int parsed_major;
-    unsigned int parsed_minor;
-    unsigned int parsed_patch;
-    unsigned int parsed_tweak;
-    this->VersionCount =
-      sscanf(this->Version.c_str(), "%u.%u.%u.%u", &parsed_major,
-             &parsed_minor, &parsed_patch, &parsed_tweak);
-    switch (this->VersionCount) {
-      case 4:
-        this->VersionTweak = parsed_tweak;
-        CM_FALLTHROUGH;
-      case 3:
-        this->VersionPatch = parsed_patch;
-        CM_FALLTHROUGH;
-      case 2:
-        this->VersionMinor = parsed_minor;
-        CM_FALLTHROUGH;
-      case 1:
-        this->VersionMajor = parsed_major;
-        CM_FALLTHROUGH;
-      default:
-        break;
+  // fill various parts of version specification
+  if (!this->VersionComplete.empty()) {
+    if (!versionRegex.find(this->VersionComplete)) {
+      this->SetError("called with invalid version specification.");
+      return false;
+    }
+
+    this->Version = versionRegex.match(1);
+    this->VersionMax = versionRegex.match(5);
+    if (versionRegex.match(4) == "<"_s) {
+      this->VersionRangeMax = VERSION_ENDPOINT_EXCLUDED;
+    }
+    if (!this->VersionMax.empty()) {
+      this->VersionRange = this->VersionComplete;
     }
   }
 
-  std::string disableFindPackageVar = "CMAKE_DISABLE_FIND_PACKAGE_";
-  disableFindPackageVar += this->Name;
+  if (!this->VersionRange.empty()) {
+    // version range must not be empty
+    if ((this->VersionRangeMax == VERSION_ENDPOINT_INCLUDED &&
+         cmSystemTools::VersionCompareGreater(this->Version,
+                                              this->VersionMax)) ||
+        (this->VersionRangeMax == VERSION_ENDPOINT_EXCLUDED &&
+         cmSystemTools::VersionCompareGreaterEq(this->Version,
+                                                this->VersionMax))) {
+      this->SetError("specified version range is empty.");
+      return false;
+    }
+  }
+
+  if (this->VersionExact && !this->VersionRange.empty()) {
+    this->SetError("EXACT cannot be specified with a version range.");
+    return false;
+  }
+
+  // Parse the version number and store the results that were
+  // successfully parsed.
+  auto parseVersion = [](const std::string& version, unsigned int& major,
+                         unsigned int& minor, unsigned int& patch,
+                         unsigned int& tweak) -> unsigned int {
+    return sscanf(version.c_str(), "%u.%u.%u.%u", &major, &minor, &patch,
+                  &tweak);
+  };
+
+  if (!this->Version.empty()) {
+    this->VersionCount =
+      parseVersion(this->Version, this->VersionMajor, this->VersionMinor,
+                   this->VersionPatch, this->VersionTweak);
+  }
+  if (!this->VersionMax.empty()) {
+    this->VersionMaxCount = parseVersion(
+      this->VersionMax, this->VersionMaxMajor, this->VersionMaxMinor,
+      this->VersionMaxPatch, this->VersionMaxTweak);
+  }
+
+  std::string disableFindPackageVar =
+    cmStrCat("CMAKE_DISABLE_FIND_PACKAGE_", this->Name);
   if (this->Makefile->IsOn(disableFindPackageVar)) {
     if (this->Required) {
-      std::ostringstream e;
-      e << "for module " << this->Name << " called with REQUIRED, but "
-        << disableFindPackageVar
-        << " is enabled. A REQUIRED package cannot be disabled.";
-      this->SetError(e.str());
+      this->SetError(
+        cmStrCat("for module ", this->Name, " called with REQUIRED, but ",
+                 disableFindPackageVar,
+                 " is enabled. A REQUIRED package cannot be disabled."));
       return false;
     }
 
@@ -459,7 +496,7 @@ bool cmFindPackageCommand::InitialPass(std::vector<std::string> const& args,
     // Allocate a PACKAGE_ROOT_PATH for the current find_package call.
     this->Makefile->FindPackageRootPathStack.emplace_back();
     std::vector<std::string>& rootPaths =
-      *this->Makefile->FindPackageRootPathStack.rbegin();
+      this->Makefile->FindPackageRootPathStack.back();
 
     // Add root paths from <PackageName>_ROOT CMake and environment variables,
     // subject to CMP0074.
@@ -473,15 +510,13 @@ bool cmFindPackageCommand::InitialPass(std::vector<std::string> const& args,
       case cmPolicies::REQUIRED_IF_USED:
       case cmPolicies::REQUIRED_ALWAYS:
         this->Makefile->IssueMessage(
-          cmake::FATAL_ERROR,
+          MessageType::FATAL_ERROR,
           cmPolicies::GetRequiredPolicyError(cmPolicies::CMP0074));
         break;
       case cmPolicies::NEW: {
         // NEW behavior is to honor the <pkg>_ROOT variables.
         std::string const rootVar = this->Name + "_ROOT";
-        if (const char* pkgRoot = this->Makefile->GetDefinition(rootVar)) {
-          cmSystemTools::ExpandListArgument(pkgRoot, rootPaths, false);
-        }
+        this->Makefile->GetDefExpandList(rootVar, rootPaths, false);
         cmSystemTools::GetPath(rootPaths, rootVar.c_str());
       } break;
     }
@@ -490,59 +525,94 @@ bool cmFindPackageCommand::InitialPass(std::vector<std::string> const& args,
   this->SetModuleVariables(components);
 
   // See if there is a Find<PackageName>.cmake module.
-  if (this->UseFindModules) {
-    bool foundModule = false;
-    if (!this->FindModule(foundModule)) {
-      this->AppendSuccessInformation();
-      return false;
-    }
-    if (foundModule) {
-      this->AppendSuccessInformation();
-      return true;
-    }
-  }
-
-  if (this->UseFindModules && this->UseConfigFiles &&
-      this->Makefile->IsOn("CMAKE_FIND_PACKAGE_WARN_NO_MODULE")) {
-    std::ostringstream aw;
-    if (this->RequiredCMakeVersion >= CMake_VERSION_ENCODE(2, 8, 8)) {
-      aw << "find_package called without either MODULE or CONFIG option and "
-            "no Find"
-         << this->Name
-         << ".cmake module is in CMAKE_MODULE_PATH.  "
-            "Add MODULE to exclusively request Module mode and fail if "
-            "Find"
-         << this->Name
-         << ".cmake is missing.  "
-            "Add CONFIG to exclusively request Config mode and search for a "
-            "package configuration file provided by "
-         << this->Name << " (" << this->Name << "Config.cmake or "
-         << cmSystemTools::LowerCase(this->Name) << "-config.cmake).  ";
+  bool loadedPackage = false;
+  if (this->Makefile->IsOn("CMAKE_FIND_PACKAGE_PREFER_CONFIG")) {
+    if (this->UseConfigFiles && this->FindPackageUsingConfigMode()) {
+      loadedPackage = true;
     } else {
-      aw
-        << "find_package called without NO_MODULE option and no "
-           "Find"
-        << this->Name
-        << ".cmake module is in CMAKE_MODULE_PATH.  "
-           "Add NO_MODULE to exclusively request Config mode and search for a "
-           "package configuration file provided by "
-        << this->Name << " (" << this->Name << "Config.cmake or "
-        << cmSystemTools::LowerCase(this->Name)
-        << "-config.cmake).  "
-           "Otherwise make Find"
-        << this->Name
-        << ".cmake available in "
-           "CMAKE_MODULE_PATH.";
+      if (this->FindPackageUsingModuleMode()) {
+        loadedPackage = true;
+      } else {
+        // The package was not loaded. Report errors.
+        if (this->HandlePackageMode(HandlePackageModeType::Module)) {
+          loadedPackage = true;
+        }
+      }
     }
-    aw << "\n"
-          "(Variable CMAKE_FIND_PACKAGE_WARN_NO_MODULE enabled this warning.)";
-    this->Makefile->IssueMessage(cmake::AUTHOR_WARNING, aw.str());
+  } else {
+    if (this->UseFindModules && this->FindPackageUsingModuleMode()) {
+      loadedPackage = true;
+    } else {
+      // Handle CMAKE_FIND_PACKAGE_WARN_NO_MODULE (warn when CONFIG mode is
+      // implicitly assumed)
+      if (this->UseFindModules && this->UseConfigFiles &&
+          this->Makefile->IsOn("CMAKE_FIND_PACKAGE_WARN_NO_MODULE")) {
+        std::ostringstream aw;
+        if (this->RequiredCMakeVersion >= CMake_VERSION_ENCODE(2, 8, 8)) {
+          aw << "find_package called without either MODULE or CONFIG option "
+                "and "
+                "no Find"
+             << this->Name
+             << ".cmake module is in CMAKE_MODULE_PATH.  "
+                "Add MODULE to exclusively request Module mode and fail if "
+                "Find"
+             << this->Name
+             << ".cmake is missing.  "
+                "Add CONFIG to exclusively request Config mode and search for "
+                "a "
+                "package configuration file provided by "
+             << this->Name << " (" << this->Name << "Config.cmake or "
+             << cmSystemTools::LowerCase(this->Name) << "-config.cmake).  ";
+        } else {
+          aw << "find_package called without NO_MODULE option and no "
+                "Find"
+             << this->Name
+             << ".cmake module is in CMAKE_MODULE_PATH.  "
+                "Add NO_MODULE to exclusively request Config mode and search "
+                "for a "
+                "package configuration file provided by "
+             << this->Name << " (" << this->Name << "Config.cmake or "
+             << cmSystemTools::LowerCase(this->Name)
+             << "-config.cmake).  "
+                "Otherwise make Find"
+             << this->Name
+             << ".cmake available in "
+                "CMAKE_MODULE_PATH.";
+        }
+        aw << "\n"
+              "(Variable CMAKE_FIND_PACKAGE_WARN_NO_MODULE enabled this "
+              "warning.)";
+        this->Makefile->IssueMessage(MessageType::AUTHOR_WARNING, aw.str());
+      }
+
+      if (this->FindPackageUsingConfigMode()) {
+        loadedPackage = true;
+      }
+    }
+
+    if (this->DebugMode) {
+      this->DebugMessage(this->DebugBuffer);
+      this->DebugBuffer.clear();
+    }
   }
 
-  // No find module.  Assume the project has a CMake config file.  Use
-  // a <PackageName>_DIR cache variable to locate it.
-  this->Variable = this->Name;
-  this->Variable += "_DIR";
+  this->AppendSuccessInformation();
+
+  return loadedPackage;
+}
+
+bool cmFindPackageCommand::FindPackageUsingModuleMode()
+{
+  bool foundModule = false;
+  if (!this->FindModule(foundModule)) {
+    return false;
+  }
+  return foundModule;
+}
+
+bool cmFindPackageCommand::FindPackageUsingConfigMode()
+{
+  this->Variable = cmStrCat(this->Name, "_DIR");
 
   // Add the default name.
   if (this->Names.empty()) {
@@ -552,12 +622,10 @@ bool cmFindPackageCommand::InitialPass(std::vector<std::string> const& args,
   // Add the default configs.
   if (this->Configs.empty()) {
     for (std::string const& n : this->Names) {
-      std::string config = n;
-      config += "Config.cmake";
+      std::string config = cmStrCat(n, "Config.cmake");
       this->Configs.push_back(config);
 
-      config = cmSystemTools::LowerCase(n);
-      config += "-config.cmake";
+      config = cmStrCat(cmSystemTools::LowerCase(n), "-config.cmake");
       this->Configs.push_back(std::move(config));
     }
   }
@@ -572,70 +640,108 @@ bool cmFindPackageCommand::InitialPass(std::vector<std::string> const& args,
   this->IgnoredPaths.insert(ignored.begin(), ignored.end());
 
   // Find and load the package.
-  bool result = this->HandlePackageMode();
-  this->AppendSuccessInformation();
-  return result;
+  return this->HandlePackageMode(HandlePackageModeType::Config);
+}
+
+void cmFindPackageCommand::SetVersionVariables(
+  const std::function<void(const std::string&, cm::string_view)>&
+    addDefinition,
+  const std::string& prefix, const std::string& version, unsigned int count,
+  unsigned int major, unsigned int minor, unsigned int patch,
+  unsigned int tweak)
+{
+  addDefinition(prefix, version);
+
+  char buf[64];
+  sprintf(buf, "%u", major);
+  addDefinition(prefix + "_MAJOR", buf);
+  sprintf(buf, "%u", minor);
+  addDefinition(prefix + "_MINOR", buf);
+  sprintf(buf, "%u", patch);
+  addDefinition(prefix + "_PATCH", buf);
+  sprintf(buf, "%u", tweak);
+  addDefinition(prefix + "_TWEAK", buf);
+  sprintf(buf, "%u", count);
+  addDefinition(prefix + "_COUNT", buf);
 }
 
 void cmFindPackageCommand::SetModuleVariables(const std::string& components)
 {
-  this->AddFindDefinition("CMAKE_FIND_PACKAGE_NAME", this->Name.c_str());
+  this->AddFindDefinition("CMAKE_FIND_PACKAGE_NAME", this->Name);
 
   // Store the list of components.
   std::string components_var = this->Name + "_FIND_COMPONENTS";
-  this->AddFindDefinition(components_var, components.c_str());
+  this->AddFindDefinition(components_var, components);
 
   if (this->Quiet) {
     // Tell the module that is about to be read that it should find
     // quietly.
-    std::string quietly = this->Name;
-    quietly += "_FIND_QUIETLY";
-    this->AddFindDefinition(quietly, "1");
+    std::string quietly = cmStrCat(this->Name, "_FIND_QUIETLY");
+    this->AddFindDefinition(quietly, "1"_s);
   }
 
   if (this->Required) {
     // Tell the module that is about to be read that it should report
     // a fatal error if the package is not found.
-    std::string req = this->Name;
-    req += "_FIND_REQUIRED";
-    this->AddFindDefinition(req, "1");
+    std::string req = cmStrCat(this->Name, "_FIND_REQUIRED");
+    this->AddFindDefinition(req, "1"_s);
   }
 
+  if (!this->VersionComplete.empty()) {
+    std::string req = cmStrCat(this->Name, "_FIND_VERSION_COMPLETE");
+    this->AddFindDefinition(req, this->VersionComplete);
+  }
+
+  // Tell the module that is about to be read what version of the
+  // package has been requested.
+  auto addDefinition = [this](const std::string& variable,
+                              cm::string_view value) {
+    this->AddFindDefinition(variable, value);
+  };
+
   if (!this->Version.empty()) {
-    // Tell the module that is about to be read what version of the
-    // package has been requested.
-    std::string ver = this->Name;
-    ver += "_FIND_VERSION";
-    this->AddFindDefinition(ver, this->Version.c_str());
-    char buf[64];
-    sprintf(buf, "%u", this->VersionMajor);
-    this->AddFindDefinition(ver + "_MAJOR", buf);
-    sprintf(buf, "%u", this->VersionMinor);
-    this->AddFindDefinition(ver + "_MINOR", buf);
-    sprintf(buf, "%u", this->VersionPatch);
-    this->AddFindDefinition(ver + "_PATCH", buf);
-    sprintf(buf, "%u", this->VersionTweak);
-    this->AddFindDefinition(ver + "_TWEAK", buf);
-    sprintf(buf, "%u", this->VersionCount);
-    this->AddFindDefinition(ver + "_COUNT", buf);
+    auto prefix = cmStrCat(this->Name, "_FIND_VERSION"_s);
+    this->SetVersionVariables(addDefinition, prefix, this->Version,
+                              this->VersionCount, this->VersionMajor,
+                              this->VersionMinor, this->VersionPatch,
+                              this->VersionTweak);
 
     // Tell the module whether an exact version has been requested.
-    std::string exact = this->Name;
-    exact += "_FIND_VERSION_EXACT";
-    this->AddFindDefinition(exact, this->VersionExact ? "1" : "0");
+    auto exact = cmStrCat(this->Name, "_FIND_VERSION_EXACT");
+    this->AddFindDefinition(exact, this->VersionExact ? "1"_s : "0"_s);
+  }
+  if (!this->VersionRange.empty()) {
+    auto prefix = cmStrCat(this->Name, "_FIND_VERSION_MIN"_s);
+    this->SetVersionVariables(addDefinition, prefix, this->Version,
+                              this->VersionCount, this->VersionMajor,
+                              this->VersionMinor, this->VersionPatch,
+                              this->VersionTweak);
+
+    prefix = cmStrCat(this->Name, "_FIND_VERSION_MAX"_s);
+    this->SetVersionVariables(addDefinition, prefix, this->VersionMax,
+                              this->VersionMaxCount, this->VersionMaxMajor,
+                              this->VersionMaxMinor, this->VersionMaxPatch,
+                              this->VersionMaxTweak);
+
+    auto id = cmStrCat(this->Name, "_FIND_VERSION_RANGE");
+    this->AddFindDefinition(id, this->VersionRange);
+    id = cmStrCat(this->Name, "_FIND_VERSION_RANGE_MIN");
+    this->AddFindDefinition(id, this->VersionRangeMin);
+    id = cmStrCat(this->Name, "_FIND_VERSION_RANGE_MAX");
+    this->AddFindDefinition(id, this->VersionRangeMax);
   }
 }
 
 void cmFindPackageCommand::AddFindDefinition(const std::string& var,
-                                             const char* val)
+                                             cm::string_view value)
 {
-  if (const char* old = this->Makefile->GetDefinition(var)) {
+  if (cmProp old = this->Makefile->GetDefinition(var)) {
     this->OriginalDefs[var].exists = true;
-    this->OriginalDefs[var].value = old;
+    this->OriginalDefs[var].value = *old;
   } else {
     this->OriginalDefs[var].exists = false;
   }
-  this->Makefile->AddDefinition(var, val);
+  this->Makefile->AddDefinition(var, value);
 }
 
 void cmFindPackageCommand::RestoreFindDefinitions()
@@ -643,7 +749,7 @@ void cmFindPackageCommand::RestoreFindDefinitions()
   for (auto const& i : this->OriginalDefs) {
     OriginalDef const& od = i.second;
     if (od.exists) {
-      this->Makefile->AddDefinition(i.first, od.value.c_str());
+      this->Makefile->AddDefinition(i.first, od.value);
     } else {
       this->Makefile->RemoveDefinition(i.first);
     }
@@ -652,11 +758,24 @@ void cmFindPackageCommand::RestoreFindDefinitions()
 
 bool cmFindPackageCommand::FindModule(bool& found)
 {
-  std::string module = "Find";
-  module += this->Name;
-  module += ".cmake";
+  std::string module = cmStrCat("Find", this->Name, ".cmake");
+
   bool system = false;
-  std::string mfile = this->Makefile->GetModulesFile(module.c_str(), system);
+  std::string debugBuffer =
+    cmStrCat("find_package considered the following paths for ", this->Name,
+             ".cmake\n");
+  std::string mfile = this->Makefile->GetModulesFile(
+    module, system, this->DebugMode, debugBuffer);
+  if (this->DebugMode) {
+    if (mfile.empty()) {
+      debugBuffer = cmStrCat(debugBuffer, "The file was not found.");
+    } else {
+      debugBuffer =
+        cmStrCat(debugBuffer, "The file was found at\n  ", mfile, "\n");
+    }
+    this->DebugBuffer = cmStrCat(this->DebugBuffer, debugBuffer, "\n");
+  }
+
   if (!mfile.empty()) {
     if (system) {
       auto it = this->DeprecatedFindModules.find(this->Name);
@@ -665,9 +784,9 @@ bool cmFindPackageCommand::FindModule(bool& found)
           this->Makefile->GetPolicyStatus(it->second);
         switch (status) {
           case cmPolicies::WARN: {
-            std::ostringstream e;
-            e << cmPolicies::GetPolicyWarning(it->second) << "\n";
-            this->Makefile->IssueMessage(cmake::AUTHOR_WARNING, e.str());
+            this->Makefile->IssueMessage(
+              MessageType::AUTHOR_WARNING,
+              cmStrCat(cmPolicies::GetPolicyWarning(it->second), "\n"));
             CM_FALLTHROUGH;
           }
           case cmPolicies::OLD:
@@ -683,35 +802,40 @@ bool cmFindPackageCommand::FindModule(bool& found)
     // Load the module we found, and set "<name>_FIND_MODULE" to true
     // while inside it.
     found = true;
-    std::string var = this->Name;
-    var += "_FIND_MODULE";
+    std::string var = cmStrCat(this->Name, "_FIND_MODULE");
     this->Makefile->AddDefinition(var, "1");
-    bool result = this->ReadListFile(mfile.c_str(), DoPolicyScope);
+    bool result = this->ReadListFile(mfile, DoPolicyScope);
     this->Makefile->RemoveDefinition(var);
+
+    if (this->DebugMode) {
+      std::string foundVar = cmStrCat(this->Name, "_FOUND");
+      if (this->Makefile->IsDefinitionSet(foundVar) &&
+          !this->Makefile->IsOn(foundVar)) {
+
+        this->DebugBuffer = cmStrCat(
+          this->DebugBuffer, "The module is considered not found due to ",
+          foundVar, " being FALSE.");
+      }
+    }
     return result;
   }
   return true;
 }
 
-bool cmFindPackageCommand::HandlePackageMode()
+bool cmFindPackageCommand::HandlePackageMode(
+  HandlePackageModeType handlePackageModeType)
 {
   this->ConsideredConfigs.clear();
 
-  // Support old capitalization behavior.
-  std::string upperDir = cmSystemTools::UpperCase(this->Name);
-  std::string upperFound = cmSystemTools::UpperCase(this->Name);
-  upperDir += "_DIR";
-  upperFound += "_FOUND";
-
   // Try to find the config file.
-  const char* def = this->Makefile->GetDefinition(this->Variable);
+  cmProp def = this->Makefile->GetDefinition(this->Variable);
 
   // Try to load the config file if the directory is known
   bool fileFound = false;
   if (this->UseConfigFiles) {
-    if (!cmSystemTools::IsOff(def)) {
+    if (!cmIsOff(def)) {
       // Get the directory from the variable value.
-      std::string dir = def;
+      std::string dir = *def;
       cmSystemTools::ConvertToUnixSlashes(dir);
 
       // Treat relative paths with respect to the current source dir.
@@ -729,22 +853,21 @@ bool cmFindPackageCommand::HandlePackageMode()
     }
 
     // Search for the config file if it is not already found.
-    if (cmSystemTools::IsOff(def) || !fileFound) {
+    if (cmIsOff(def) || !fileFound) {
       fileFound = this->FindConfig();
     }
 
     // Sanity check.
     if (fileFound && this->FileFound.empty()) {
       this->Makefile->IssueMessage(
-        cmake::INTERNAL_ERROR, "fileFound is true but FileFound is empty!");
+        MessageType::INTERNAL_ERROR,
+        "fileFound is true but FileFound is empty!");
       fileFound = false;
     }
   }
 
-  std::string foundVar = this->Name;
-  foundVar += "_FOUND";
-  std::string notFoundMessageVar = this->Name;
-  notFoundMessageVar += "_NOT_FOUND_MESSAGE";
+  std::string foundVar = cmStrCat(this->Name, "_FOUND");
+  std::string notFoundMessageVar = cmStrCat(this->Name, "_NOT_FOUND_MESSAGE");
   std::string notFoundMessage;
 
   // If the directory for the config file was found, try to read the file.
@@ -768,7 +891,7 @@ bool cmFindPackageCommand::HandlePackageMode()
     this->StoreVersionFound();
 
     // Parse the configuration file.
-    if (this->ReadListFile(this->FileFound.c_str(), DoPolicyScope)) {
+    if (this->ReadListFile(this->FileFound, DoPolicyScope)) {
       // The package has been found.
       found = true;
 
@@ -785,6 +908,18 @@ bool cmFindPackageCommand::HandlePackageMode()
       // The configuration file is invalid.
       result = false;
     }
+  }
+
+  if (this->UseFindModules && !found &&
+      handlePackageModeType == HandlePackageModeType::Config &&
+      this->Makefile->IsOn("CMAKE_FIND_PACKAGE_PREFER_CONFIG")) {
+    // Config mode failed. Allow Module case.
+    result = false;
+  }
+
+  if (this->DebugMode) {
+    this->DebugMessage(this->DebugBuffer);
+    this->DebugBuffer.clear();
   }
 
   // package not found
@@ -811,25 +946,25 @@ bool cmFindPackageCommand::HandlePackageMode()
       // If there are files in ConsideredConfigs, it means that FooConfig.cmake
       // have been found, but they didn't have appropriate versions.
       else if (!this->ConsideredConfigs.empty()) {
-        std::vector<ConfigFileInfo>::const_iterator duplicate_end =
-          cmRemoveDuplicates(this->ConsideredConfigs);
+        auto duplicate_end = cmRemoveDuplicates(this->ConsideredConfigs);
         e << "Could not find a configuration file for package \"" << this->Name
           << "\" that "
           << (this->VersionExact ? "exactly matches" : "is compatible with")
-          << " requested version \"" << this->Version << "\".\n"
+          << " requested version "
+          << (this->VersionRange.empty() ? "" : "range ") << "\""
+          << this->VersionComplete << "\".\n"
           << "The following configuration files were considered but not "
              "accepted:\n";
-        for (std::vector<ConfigFileInfo>::const_iterator i =
-               this->ConsideredConfigs.begin();
-             i != duplicate_end; ++i) {
-          e << "  " << i->filename << ", version: " << i->version << "\n";
+
+        for (ConfigFileInfo const& info :
+             cmMakeRange(this->ConsideredConfigs.cbegin(), duplicate_end)) {
+          e << "  " << info.filename << ", version: " << info.version << "\n";
         }
       } else {
         std::string requestedVersionString;
-        if (!this->Version.empty()) {
-          requestedVersionString = " (requested version ";
-          requestedVersionString += this->Version;
-          requestedVersionString += ")";
+        if (!this->VersionComplete.empty()) {
+          requestedVersionString =
+            cmStrCat(" (requested version ", this->VersionComplete, ')');
         }
 
         if (this->UseConfigFiles) {
@@ -887,22 +1022,23 @@ bool cmFindPackageCommand::HandlePackageMode()
         }
       }
 
-      this->Makefile->IssueMessage(
-        this->Required ? cmake::FATAL_ERROR : cmake::WARNING, e.str());
+      this->Makefile->IssueMessage(this->Required ? MessageType::FATAL_ERROR
+                                                  : MessageType::WARNING,
+                                   e.str());
       if (this->Required) {
         cmSystemTools::SetFatalErrorOccured();
       }
 
       if (!aw.str().empty()) {
-        this->Makefile->IssueMessage(cmake::AUTHOR_WARNING, aw.str());
+        this->Makefile->IssueMessage(MessageType::AUTHOR_WARNING, aw.str());
       }
     }
     // output result if in config mode but not in quiet mode
     else if (!this->Quiet) {
-      std::ostringstream aw;
-      aw << "Could NOT find " << this->Name << " (missing: " << this->Name
-         << "_DIR)";
-      this->Makefile->DisplayStatus(aw.str().c_str(), -1);
+      this->Makefile->DisplayStatus(cmStrCat("Could NOT find ", this->Name,
+                                             " (missing: ", this->Name,
+                                             "_DIR)"),
+                                    -1);
     }
   }
 
@@ -910,18 +1046,17 @@ bool cmFindPackageCommand::HandlePackageMode()
   this->Makefile->AddDefinition(foundVar, found ? "1" : "0");
 
   // Set a variable naming the configuration file that was found.
-  std::string fileVar = this->Name;
-  fileVar += "_CONFIG";
+  std::string fileVar = cmStrCat(this->Name, "_CONFIG");
   if (found) {
-    this->Makefile->AddDefinition(fileVar, this->FileFound.c_str());
+    this->Makefile->AddDefinition(fileVar, this->FileFound);
   } else {
     this->Makefile->RemoveDefinition(fileVar);
   }
 
-  std::string consideredConfigsVar = this->Name;
-  consideredConfigsVar += "_CONSIDERED_CONFIGS";
-  std::string consideredVersionsVar = this->Name;
-  consideredVersionsVar += "_CONSIDERED_VERSIONS";
+  std::string consideredConfigsVar =
+    cmStrCat(this->Name, "_CONSIDERED_CONFIGS");
+  std::string consideredVersionsVar =
+    cmStrCat(this->Name, "_CONSIDERED_VERSIONS");
 
   std::string consideredConfigFiles;
   std::string consideredVersions;
@@ -935,11 +1070,9 @@ bool cmFindPackageCommand::HandlePackageMode()
     sep = ";";
   }
 
-  this->Makefile->AddDefinition(consideredConfigsVar,
-                                consideredConfigFiles.c_str());
+  this->Makefile->AddDefinition(consideredConfigsVar, consideredConfigFiles);
 
-  this->Makefile->AddDefinition(consideredVersionsVar,
-                                consideredVersions.c_str());
+  this->Makefile->AddDefinition(consideredVersionsVar, consideredVersions);
 
   return result;
 }
@@ -951,6 +1084,11 @@ bool cmFindPackageCommand::FindConfig()
 
   // Look for the project's configuration file.
   bool found = false;
+  if (this->DebugMode) {
+    this->DebugBuffer = cmStrCat(this->DebugBuffer,
+                                 "find_package considered the following "
+                                 "locations for the Config module:\n");
+  }
 
   // Search for frameworks.
   if (!found && (this->SearchFrameworkFirst || this->SearchFrameworkOnly)) {
@@ -977,6 +1115,16 @@ bool cmFindPackageCommand::FindConfig()
     found = this->FindAppBundleConfig();
   }
 
+  if (this->DebugMode) {
+    if (found) {
+      this->DebugBuffer = cmStrCat(
+        this->DebugBuffer, "The file was found at\n  ", this->FileFound, "\n");
+    } else {
+      this->DebugBuffer =
+        cmStrCat(this->DebugBuffer, "The file was not found.\n");
+    }
+  }
+
   // Store the entry in the cache so it can be set by the user.
   std::string init;
   if (found) {
@@ -985,57 +1133,49 @@ bool cmFindPackageCommand::FindConfig()
     init = this->Variable + "-NOTFOUND";
   }
   std::string help =
-    "The directory containing a CMake configuration file for ";
-  help += this->Name;
-  help += ".";
+    cmStrCat("The directory containing a CMake configuration file for ",
+             this->Name, '.');
   // We force the value since we do not get here if it was already set.
-  this->Makefile->AddCacheDefinition(this->Variable, init.c_str(),
-                                     help.c_str(), cmStateEnums::PATH, true);
+  this->Makefile->AddCacheDefinition(this->Variable, init, help.c_str(),
+                                     cmStateEnums::PATH, true);
+
   return found;
 }
 
 bool cmFindPackageCommand::FindPrefixedConfig()
 {
   std::vector<std::string> const& prefixes = this->SearchPaths;
-  for (std::string const& p : prefixes) {
-    if (this->SearchPrefix(p)) {
-      return true;
-    }
-  }
-  return false;
+  return std::any_of(
+    prefixes.begin(), prefixes.end(),
+    [this](std::string const& p) -> bool { return this->SearchPrefix(p); });
 }
 
 bool cmFindPackageCommand::FindFrameworkConfig()
 {
   std::vector<std::string> const& prefixes = this->SearchPaths;
-  for (std::string const& p : prefixes) {
-    if (this->SearchFrameworkPrefix(p)) {
-      return true;
-    }
-  }
-  return false;
+  return std::any_of(prefixes.begin(), prefixes.end(),
+                     [this](std::string const& p) -> bool {
+                       return this->SearchFrameworkPrefix(p);
+                     });
 }
 
 bool cmFindPackageCommand::FindAppBundleConfig()
 {
   std::vector<std::string> const& prefixes = this->SearchPaths;
-  for (std::string const& p : prefixes) {
-    if (this->SearchAppBundlePrefix(p)) {
-      return true;
-    }
-  }
-  return false;
+  return std::any_of(prefixes.begin(), prefixes.end(),
+                     [this](std::string const& p) -> bool {
+                       return this->SearchAppBundlePrefix(p);
+                     });
 }
 
-bool cmFindPackageCommand::ReadListFile(const char* f, PolicyScopeRule psr)
+bool cmFindPackageCommand::ReadListFile(const std::string& f,
+                                        PolicyScopeRule psr)
 {
   const bool noPolicyScope = !this->PolicyScope || psr == NoPolicyScope;
   if (this->Makefile->ReadDependentFile(f, noPolicyScope)) {
     return true;
   }
-  std::string e = "Error reading CMake code from \"";
-  e += f;
-  e += "\".";
+  std::string e = cmStrCat("Error reading CMake code from \"", f, "\".");
   this->SetError(e);
   return false;
 }
@@ -1043,13 +1183,11 @@ bool cmFindPackageCommand::ReadListFile(const char* f, PolicyScopeRule psr)
 void cmFindPackageCommand::AppendToFoundProperty(bool found)
 {
   std::vector<std::string> foundContents;
-  const char* foundProp =
+  cmProp foundProp =
     this->Makefile->GetState()->GetGlobalProperty("PACKAGES_FOUND");
-  if (foundProp && *foundProp) {
-    std::string tmp = foundProp;
-
-    cmSystemTools::ExpandListArgument(tmp, foundContents, false);
-    std::vector<std::string>::iterator nameIt =
+  if (cmNonempty(foundProp)) {
+    cmExpandList(*foundProp, foundContents, false);
+    auto nameIt =
       std::find(foundContents.begin(), foundContents.end(), this->Name);
     if (nameIt != foundContents.end()) {
       foundContents.erase(nameIt);
@@ -1057,13 +1195,11 @@ void cmFindPackageCommand::AppendToFoundProperty(bool found)
   }
 
   std::vector<std::string> notFoundContents;
-  const char* notFoundProp =
+  cmProp notFoundProp =
     this->Makefile->GetState()->GetGlobalProperty("PACKAGES_NOT_FOUND");
-  if (notFoundProp && *notFoundProp) {
-    std::string tmp = notFoundProp;
-
-    cmSystemTools::ExpandListArgument(tmp, notFoundContents, false);
-    std::vector<std::string>::iterator nameIt =
+  if (cmNonempty(notFoundProp)) {
+    cmExpandList(*notFoundProp, notFoundContents, false);
+    auto nameIt =
       std::find(notFoundContents.begin(), notFoundContents.end(), this->Name);
     if (nameIt != notFoundContents.end()) {
       notFoundContents.erase(nameIt);
@@ -1087,45 +1223,40 @@ void cmFindPackageCommand::AppendToFoundProperty(bool found)
 void cmFindPackageCommand::AppendSuccessInformation()
 {
   {
-    std::string transitivePropName = "_CMAKE_";
-    transitivePropName += this->Name + "_TRANSITIVE_DEPENDENCY";
+    std::string transitivePropName =
+      cmStrCat("_CMAKE_", this->Name, "_TRANSITIVE_DEPENDENCY");
     this->Makefile->GetState()->SetGlobalProperty(transitivePropName, "False");
   }
-  std::string found = this->Name;
-  found += "_FOUND";
+  std::string found = cmStrCat(this->Name, "_FOUND");
   std::string upperFound = cmSystemTools::UpperCase(found);
 
-  const char* upperResult = this->Makefile->GetDefinition(upperFound);
-  const char* result = this->Makefile->GetDefinition(found);
-  bool packageFound =
-    ((cmSystemTools::IsOn(result)) || (cmSystemTools::IsOn(upperResult)));
+  bool upperResult = this->Makefile->IsOn(upperFound);
+  bool result = this->Makefile->IsOn(found);
+  bool packageFound = (result || upperResult);
 
   this->AppendToFoundProperty(packageFound);
 
   // Record whether the find was quiet or not, so this can be used
   // e.g. in FeatureSummary.cmake
-  std::string quietInfoPropName = "_CMAKE_";
-  quietInfoPropName += this->Name;
-  quietInfoPropName += "_QUIET";
+  std::string quietInfoPropName = cmStrCat("_CMAKE_", this->Name, "_QUIET");
   this->Makefile->GetState()->SetGlobalProperty(
     quietInfoPropName, this->Quiet ? "TRUE" : "FALSE");
 
   // set a global property to record the required version of this package
-  std::string versionInfoPropName = "_CMAKE_";
-  versionInfoPropName += this->Name;
-  versionInfoPropName += "_REQUIRED_VERSION";
+  std::string versionInfoPropName =
+    cmStrCat("_CMAKE_", this->Name, "_REQUIRED_VERSION");
   std::string versionInfo;
-  if (!this->Version.empty()) {
-    versionInfo = this->VersionExact ? "==" : ">=";
-    versionInfo += " ";
-    versionInfo += this->Version;
+  if (!this->VersionRange.empty()) {
+    versionInfo = this->VersionRange;
+  } else if (!this->Version.empty()) {
+    versionInfo =
+      cmStrCat(this->VersionExact ? "==" : ">=", ' ', this->Version);
   }
   this->Makefile->GetState()->SetGlobalProperty(versionInfoPropName,
                                                 versionInfo.c_str());
   if (this->Required) {
-    std::string requiredInfoPropName = "_CMAKE_";
-    requiredInfoPropName += this->Name;
-    requiredInfoPropName += "_TYPE";
+    std::string requiredInfoPropName =
+      cmStrCat("_CMAKE_", this->Name, "_TYPE");
     this->Makefile->GetState()->SetGlobalProperty(requiredInfoPropName,
                                                   "REQUIRED");
   }
@@ -1135,6 +1266,21 @@ void cmFindPackageCommand::AppendSuccessInformation()
 
   // Pop the package stack
   this->Makefile->FindPackageRootPathStack.pop_back();
+}
+
+inline std::size_t collectPathsForDebug(std::string& buffer,
+                                        cmSearchPath const& searchPath,
+                                        std::size_t startIndex = 0)
+{
+  const auto& paths = searchPath.GetPaths();
+  if (paths.empty()) {
+    buffer += "  none";
+    return 0;
+  }
+  for (std::size_t i = startIndex; i < paths.size(); i++) {
+    buffer += "  " + paths[i] + "\n";
+  }
+  return paths.size();
 }
 
 void cmFindPackageCommand::ComputePrefixes()
@@ -1150,7 +1296,9 @@ void cmFindPackageCommand::ComputePrefixes()
       this->FillPrefixesCMakeEnvironment();
     }
   }
+
   this->FillPrefixesUserHints();
+
   if (!this->NoDefaultPath) {
     if (!this->NoSystemEnvironmentPath) {
       this->FillPrefixesSystemEnvironment();
@@ -1175,37 +1323,79 @@ void cmFindPackageCommand::FillPrefixesPackageRoot()
   cmSearchPath& paths = this->LabeledPaths[PathLabel::PackageRoot];
 
   // Add the PACKAGE_ROOT_PATH from each enclosing find_package call.
-  for (std::deque<std::vector<std::string>>::const_reverse_iterator pkgPaths =
-         this->Makefile->FindPackageRootPathStack.rbegin();
+  for (auto pkgPaths = this->Makefile->FindPackageRootPathStack.rbegin();
        pkgPaths != this->Makefile->FindPackageRootPathStack.rend();
        ++pkgPaths) {
     for (std::string const& path : *pkgPaths) {
       paths.AddPath(path);
     }
   }
+  if (this->DebugMode) {
+    std::string debugBuffer = "<PackageName>_ROOT CMake variable "
+                              "[CMAKE_FIND_USE_PACKAGE_ROOT_PATH].\n";
+    collectPathsForDebug(debugBuffer, paths);
+    this->DebugBuffer = cmStrCat(this->DebugBuffer, debugBuffer, "\n");
+  }
 }
 
 void cmFindPackageCommand::FillPrefixesCMakeEnvironment()
 {
   cmSearchPath& paths = this->LabeledPaths[PathLabel::CMakeEnvironment];
+  std::string debugBuffer;
+  std::size_t debugOffset = 0;
 
   // Check the environment variable with the same name as the cache
   // entry.
   paths.AddEnvPath(this->Variable);
+  if (this->DebugMode) {
+    debugBuffer = cmStrCat("Env variable ", this->Variable,
+                           " [CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH].\n");
+    debugOffset = collectPathsForDebug(debugBuffer, paths);
+  }
 
   // And now the general CMake environment variables
   paths.AddEnvPath("CMAKE_PREFIX_PATH");
+  if (this->DebugMode) {
+    debugBuffer = cmStrCat(debugBuffer,
+                           "\nCMAKE_PREFIX_PATH env variable "
+                           "[CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH].\n");
+    debugOffset = collectPathsForDebug(debugBuffer, paths, debugOffset);
+  }
+
   paths.AddEnvPath("CMAKE_FRAMEWORK_PATH");
   paths.AddEnvPath("CMAKE_APPBUNDLE_PATH");
+  if (this->DebugMode) {
+    debugBuffer =
+      cmStrCat(debugBuffer,
+               "\nCMAKE_FRAMEWORK_PATH and CMAKE_APPBUNDLE_PATH env "
+               "variables [CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH].\n");
+    collectPathsForDebug(debugBuffer, paths, debugOffset);
+    this->DebugBuffer = cmStrCat(this->DebugBuffer, debugBuffer, "\n");
+  }
 }
 
 void cmFindPackageCommand::FillPrefixesCMakeVariable()
 {
   cmSearchPath& paths = this->LabeledPaths[PathLabel::CMake];
+  std::string debugBuffer;
+  std::size_t debugOffset = 0;
 
   paths.AddCMakePath("CMAKE_PREFIX_PATH");
+  if (this->DebugMode) {
+    debugBuffer = "CMAKE_PREFIX_PATH variable [CMAKE_FIND_USE_CMAKE_PATH].\n";
+    debugOffset = collectPathsForDebug(debugBuffer, paths);
+  }
+
   paths.AddCMakePath("CMAKE_FRAMEWORK_PATH");
   paths.AddCMakePath("CMAKE_APPBUNDLE_PATH");
+  if (this->DebugMode) {
+    debugBuffer =
+      cmStrCat(debugBuffer,
+               "\nCMAKE_FRAMEWORK_PATH and CMAKE_APPBUNDLE_PATH variables "
+               "[CMAKE_FIND_USE_CMAKE_PATH].\n");
+    collectPathsForDebug(debugBuffer, paths, debugOffset);
+    this->DebugBuffer = cmStrCat(this->DebugBuffer, debugBuffer, "\n");
+  }
 }
 
 void cmFindPackageCommand::FillPrefixesSystemEnvironment()
@@ -1225,6 +1415,12 @@ void cmFindPackageCommand::FillPrefixesSystemEnvironment()
       paths.AddPath(i);
     }
   }
+  if (this->DebugMode) {
+    std::string debugBuffer = "Standard system environment variables "
+                              "[CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH].\n";
+    collectPathsForDebug(debugBuffer, paths);
+    this->DebugBuffer = cmStrCat(this->DebugBuffer, debugBuffer, "\n");
+  }
 }
 
 void cmFindPackageCommand::FillPrefixesUserRegistry()
@@ -1235,9 +1431,7 @@ void cmFindPackageCommand::FillPrefixesUserRegistry()
   char dir[B_PATH_NAME_LENGTH];
   if (find_directory(B_USER_SETTINGS_DIRECTORY, -1, false, dir, sizeof(dir)) ==
       B_OK) {
-    std::string fname = dir;
-    fname += "/cmake/packages/";
-    fname += Name;
+    std::string fname = cmStrCat(dir, "/cmake/packages/", Name);
     this->LoadPackageRegistryDir(fname,
                                  this->LabeledPaths[PathLabel::UserRegistry]);
   }
@@ -1250,6 +1444,13 @@ void cmFindPackageCommand::FillPrefixesUserRegistry()
                                  this->LabeledPaths[PathLabel::UserRegistry]);
   }
 #endif
+  if (this->DebugMode) {
+    std::string debugBuffer =
+      "CMake User Package Registry [CMAKE_FIND_USE_PACKAGE_REGISTRY].\n";
+    collectPathsForDebug(debugBuffer,
+                         this->LabeledPaths[PathLabel::UserRegistry]);
+    this->DebugBuffer = cmStrCat(this->DebugBuffer, debugBuffer, "\n");
+  }
 }
 
 void cmFindPackageCommand::FillPrefixesSystemRegistry()
@@ -1261,6 +1462,15 @@ void cmFindPackageCommand::FillPrefixesSystemRegistry()
 #if defined(_WIN32) && !defined(__CYGWIN__)
   this->LoadPackageRegistryWinSystem();
 #endif
+
+  if (this->DebugMode) {
+    std::string debugBuffer =
+      "CMake System Package Registry "
+      "[CMAKE_FIND_PACKAGE_NO_SYSTEM_PACKAGE_REGISTRY].\n";
+    collectPathsForDebug(debugBuffer,
+                         this->LabeledPaths[PathLabel::SystemRegistry]);
+    this->DebugBuffer = cmStrCat(this->DebugBuffer, debugBuffer, "\n");
+  }
 }
 
 #if defined(_WIN32) && !defined(__CYGWIN__)
@@ -1362,6 +1572,9 @@ public:
       cmSystemTools::RemoveFile(this->File);
     }
   }
+  cmFindPackageCommandHoldFile(const cmFindPackageCommandHoldFile&) = delete;
+  cmFindPackageCommandHoldFile& operator=(
+    const cmFindPackageCommandHoldFile&) = delete;
   void Release() { this->File = nullptr; }
 };
 
@@ -1375,9 +1588,7 @@ void cmFindPackageCommand::LoadPackageRegistryDir(std::string const& dir,
 
   std::string fname;
   for (unsigned long i = 0; i < files.GetNumberOfFiles(); ++i) {
-    fname = dir;
-    fname += "/";
-    fname += files.GetFile(i);
+    fname = cmStrCat(dir, '/', files.GetFile(i));
 
     if (!cmSystemTools::FileIsDirectory(fname)) {
       // Hold this file hostage until it behaves.
@@ -1432,6 +1643,13 @@ void cmFindPackageCommand::FillPrefixesCMakeSystemVariable()
   paths.AddCMakePath("CMAKE_SYSTEM_PREFIX_PATH");
   paths.AddCMakePath("CMAKE_SYSTEM_FRAMEWORK_PATH");
   paths.AddCMakePath("CMAKE_SYSTEM_APPBUNDLE_PATH");
+
+  if (this->DebugMode) {
+    std::string debugBuffer = "CMake variables defined in the Platform file "
+                              "[CMAKE_FIND_USE_CMAKE_SYSTEM_PATH].\n";
+    collectPathsForDebug(debugBuffer, paths);
+    this->DebugBuffer = cmStrCat(this->DebugBuffer, debugBuffer, "\n");
+  }
 }
 
 void cmFindPackageCommand::FillPrefixesUserGuess()
@@ -1441,6 +1659,12 @@ void cmFindPackageCommand::FillPrefixesUserGuess()
   for (std::string const& p : this->UserGuessArgs) {
     paths.AddUserPath(p);
   }
+  if (this->DebugMode) {
+    std::string debugBuffer =
+      "Paths specified by the find_package PATHS option.\n";
+    collectPathsForDebug(debugBuffer, paths);
+    this->DebugBuffer = cmStrCat(this->DebugBuffer, debugBuffer, "\n");
+  }
 }
 
 void cmFindPackageCommand::FillPrefixesUserHints()
@@ -1449,6 +1673,12 @@ void cmFindPackageCommand::FillPrefixesUserHints()
 
   for (std::string const& p : this->UserHintsArgs) {
     paths.AddUserPath(p);
+  }
+  if (this->DebugMode) {
+    std::string debugBuffer =
+      "Paths specified by the find_package HINTS option.\n";
+    collectPathsForDebug(debugBuffer, paths);
+    this->DebugBuffer = cmStrCat(this->DebugBuffer, debugBuffer, "\n");
   }
 }
 
@@ -1492,13 +1722,15 @@ bool cmFindPackageCommand::FindConfigFile(std::string const& dir,
   }
 
   for (std::string const& c : this->Configs) {
-    file = dir;
-    file += "/";
-    file += c;
+    file = cmStrCat(dir, '/', c);
     if (this->DebugMode) {
-      fprintf(stderr, "Checking file [%s]\n", file.c_str());
+      this->DebugBuffer = cmStrCat(this->DebugBuffer, "  ", file, "\n");
     }
     if (cmSystemTools::FileExists(file, true) && this->CheckVersion(file)) {
+      // Allow resolving symlinks when the config file is found through a link
+      if (this->UseRealPath) {
+        file = cmSystemTools::GetRealPath(file);
+      }
       return true;
     }
   }
@@ -1516,16 +1748,14 @@ bool cmFindPackageCommand::CheckVersion(std::string const& config_file)
   std::string version_file_base = config_file.substr(0, pos);
 
   // Look for foo-config-version.cmake
-  std::string version_file = version_file_base;
-  version_file += "-version.cmake";
+  std::string version_file = cmStrCat(version_file_base, "-version.cmake");
   if (!haveResult && cmSystemTools::FileExists(version_file, true)) {
     result = this->CheckVersionFile(version_file, version);
     haveResult = true;
   }
 
   // Look for fooConfigVersion.cmake
-  version_file = version_file_base;
-  version_file += "Version.cmake";
+  version_file = cmStrCat(version_file_base, "Version.cmake");
   if (!haveResult && cmSystemTools::FileExists(version_file, true)) {
     result = this->CheckVersionFile(version_file, version);
     haveResult = true;
@@ -1560,24 +1790,40 @@ bool cmFindPackageCommand::CheckVersionFile(std::string const& version_file,
   this->Makefile->RemoveDefinition("PACKAGE_VERSION_EXACT");
 
   // Set the input variables.
-  this->Makefile->AddDefinition("PACKAGE_FIND_NAME", this->Name.c_str());
-  this->Makefile->AddDefinition("PACKAGE_FIND_VERSION", this->Version.c_str());
-  char buf[64];
-  sprintf(buf, "%u", this->VersionMajor);
-  this->Makefile->AddDefinition("PACKAGE_FIND_VERSION_MAJOR", buf);
-  sprintf(buf, "%u", this->VersionMinor);
-  this->Makefile->AddDefinition("PACKAGE_FIND_VERSION_MINOR", buf);
-  sprintf(buf, "%u", this->VersionPatch);
-  this->Makefile->AddDefinition("PACKAGE_FIND_VERSION_PATCH", buf);
-  sprintf(buf, "%u", this->VersionTweak);
-  this->Makefile->AddDefinition("PACKAGE_FIND_VERSION_TWEAK", buf);
-  sprintf(buf, "%u", this->VersionCount);
-  this->Makefile->AddDefinition("PACKAGE_FIND_VERSION_COUNT", buf);
+  this->Makefile->AddDefinition("PACKAGE_FIND_NAME", this->Name);
+  this->Makefile->AddDefinition("PACKAGE_FIND_VERSION_COMPLETE",
+                                this->VersionComplete);
+
+  auto addDefinition = [this](const std::string& variable,
+                              cm::string_view value) {
+    this->Makefile->AddDefinition(variable, value);
+  };
+  this->SetVersionVariables(addDefinition, "PACKAGE_FIND_VERSION",
+                            this->Version, this->VersionCount,
+                            this->VersionMajor, this->VersionMinor,
+                            this->VersionPatch, this->VersionTweak);
+  if (!this->VersionRange.empty()) {
+    this->SetVersionVariables(addDefinition, "PACKAGE_FIND_VERSION_MIN",
+                              this->Version, this->VersionCount,
+                              this->VersionMajor, this->VersionMinor,
+                              this->VersionPatch, this->VersionTweak);
+    this->SetVersionVariables(addDefinition, "PACKAGE_FIND_VERSION_MAX",
+                              this->VersionMax, this->VersionMaxCount,
+                              this->VersionMaxMajor, this->VersionMaxMinor,
+                              this->VersionMaxPatch, this->VersionMaxTweak);
+
+    this->Makefile->AddDefinition("PACKAGE_FIND_VERSION_RANGE",
+                                  this->VersionComplete);
+    this->Makefile->AddDefinition("PACKAGE_FIND_VERSION_RANGE_MIN",
+                                  this->VersionRangeMin);
+    this->Makefile->AddDefinition("PACKAGE_FIND_VERSION_RANGE_MAX",
+                                  this->VersionRangeMax);
+  }
 
   // Load the version check file.  Pass NoPolicyScope because we do
   // our own policy push/pop independent of CMP0011.
   bool suitable = false;
-  if (this->ReadListFile(version_file.c_str(), NoPolicyScope)) {
+  if (this->ReadListFile(version_file, NoPolicyScope)) {
     // Check the output variables.
     bool okay = this->Makefile->IsOn("PACKAGE_VERSION_EXACT");
     bool unsuitable = this->Makefile->IsOn("PACKAGE_VERSION_UNSUITABLE");
@@ -1633,32 +1879,26 @@ bool cmFindPackageCommand::CheckVersionFile(std::string const& version_file,
 void cmFindPackageCommand::StoreVersionFound()
 {
   // Store the whole version string.
-  std::string ver = this->Name;
-  ver += "_VERSION";
+  std::string ver = cmStrCat(this->Name, "_VERSION");
+  auto addDefinition = [this](const std::string& variable,
+                              cm::string_view value) {
+    this->Makefile->AddDefinition(variable, value);
+  };
+
+  this->SetVersionVariables(addDefinition, ver, this->VersionFound,
+                            this->VersionFoundCount, this->VersionFoundMajor,
+                            this->VersionFoundMinor, this->VersionFoundPatch,
+                            this->VersionFoundTweak);
+
   if (this->VersionFound.empty()) {
     this->Makefile->RemoveDefinition(ver);
-  } else {
-    this->Makefile->AddDefinition(ver, this->VersionFound.c_str());
   }
-
-  // Store the version components.
-  char buf[64];
-  sprintf(buf, "%u", this->VersionFoundMajor);
-  this->Makefile->AddDefinition(ver + "_MAJOR", buf);
-  sprintf(buf, "%u", this->VersionFoundMinor);
-  this->Makefile->AddDefinition(ver + "_MINOR", buf);
-  sprintf(buf, "%u", this->VersionFoundPatch);
-  this->Makefile->AddDefinition(ver + "_PATCH", buf);
-  sprintf(buf, "%u", this->VersionFoundTweak);
-  this->Makefile->AddDefinition(ver + "_TWEAK", buf);
-  sprintf(buf, "%u", this->VersionFoundCount);
-  this->Makefile->AddDefinition(ver + "_COUNT", buf);
 }
 
 class cmFileListGeneratorBase
 {
 public:
-  virtual ~cmFileListGeneratorBase() {}
+  virtual ~cmFileListGeneratorBase() = default;
 
 protected:
   bool Consider(std::string const& fullPath, cmFileList& listing);
@@ -1675,12 +1915,7 @@ private:
 class cmFileList
 {
 public:
-  cmFileList()
-    : First()
-    , Last(nullptr)
-  {
-  }
-  virtual ~cmFileList() {}
+  virtual ~cmFileList() = default;
   cmFileList& operator/(cmFileListGeneratorBase const& rhs)
   {
     if (this->Last) {
@@ -1703,15 +1938,14 @@ private:
   virtual bool Visit(std::string const& fullPath) = 0;
   friend class cmFileListGeneratorBase;
   std::unique_ptr<cmFileListGeneratorBase> First;
-  cmFileListGeneratorBase* Last;
+  cmFileListGeneratorBase* Last = nullptr;
 };
 
 class cmFindPackageFileList : public cmFileList
 {
 public:
   cmFindPackageFileList(cmFindPackageCommand* fpc, bool use_suffixes = true)
-    : cmFileList()
-    , FPC(fpc)
+    : FPC(fpc)
     , UseSuffixes(use_suffixes)
   {
   }
@@ -1743,6 +1977,9 @@ cmFileListGeneratorBase* cmFileListGeneratorBase::SetNext(
 bool cmFileListGeneratorBase::Consider(std::string const& fullPath,
                                        cmFileList& listing)
 {
+  if (!fullPath.empty() && !cmSystemTools::FileIsDirectory(fullPath)) {
+    return false;
+  }
   if (this->Next) {
     return this->Next->Search(fullPath + "/", listing);
   }
@@ -1752,14 +1989,12 @@ bool cmFileListGeneratorBase::Consider(std::string const& fullPath,
 class cmFileListGeneratorFixed : public cmFileListGeneratorBase
 {
 public:
-  cmFileListGeneratorFixed(std::string const& str)
-    : cmFileListGeneratorBase()
-    , String(str)
+  cmFileListGeneratorFixed(std::string str)
+    : String(std::move(str))
   {
   }
   cmFileListGeneratorFixed(cmFileListGeneratorFixed const& r)
-    : cmFileListGeneratorBase()
-    , String(r.String)
+    : String(r.String)
   {
   }
 
@@ -1782,13 +2017,11 @@ class cmFileListGeneratorEnumerate : public cmFileListGeneratorBase
 {
 public:
   cmFileListGeneratorEnumerate(std::vector<std::string> const& v)
-    : cmFileListGeneratorBase()
-    , Vector(v)
+    : Vector(v)
   {
   }
   cmFileListGeneratorEnumerate(cmFileListGeneratorEnumerate const& r)
-    : cmFileListGeneratorBase()
-    , Vector(r.Vector)
+    : Vector(r.Vector)
   {
   }
 
@@ -1817,14 +2050,12 @@ public:
   cmFileListGeneratorProject(std::vector<std::string> const& names,
                              cmFindPackageCommand::SortOrderType so,
                              cmFindPackageCommand::SortDirectionType sd)
-    : cmFileListGeneratorBase()
-    , Names(names)
+    : Names(names)
   {
     this->SetSort(so, sd);
   }
   cmFileListGeneratorProject(cmFileListGeneratorProject const& r)
-    : cmFileListGeneratorBase()
-    , Names(r.Names)
+    : Names(r.Names)
   {
     this->SetSort(r.SortOrder, r.SortDirection);
   }
@@ -1832,8 +2063,8 @@ public:
   void SetSort(cmFindPackageCommand::SortOrderType o,
                cmFindPackageCommand::SortDirectionType d)
   {
-    SortOrder = o;
-    SortDirection = d;
+    this->SortOrder = o;
+    this->SortDirection = d;
   }
 
 protected:
@@ -1856,7 +2087,7 @@ private:
       }
       for (std::string const& n : this->Names) {
         if (cmsysString_strncasecmp(fname, n.c_str(), n.length()) == 0) {
-          matches.push_back(fname);
+          matches.emplace_back(fname);
         }
       }
     }
@@ -1864,8 +2095,8 @@ private:
     // before testing the matches check if there is a specific sorting order to
     // perform
     if (this->SortOrder != cmFindPackageCommand::None) {
-      cmFindPackageCommand::Sort(matches.begin(), matches.end(), SortOrder,
-                                 SortDirection);
+      cmFindPackageCommand::Sort(matches.begin(), matches.end(),
+                                 this->SortOrder, this->SortDirection);
     }
 
     for (std::string const& i : matches) {
@@ -1888,14 +2119,12 @@ class cmFileListGeneratorMacProject : public cmFileListGeneratorBase
 public:
   cmFileListGeneratorMacProject(std::vector<std::string> const& names,
                                 const char* ext)
-    : cmFileListGeneratorBase()
-    , Names(names)
+    : Names(names)
     , Extension(ext)
   {
   }
   cmFileListGeneratorMacProject(cmFileListGeneratorMacProject const& r)
-    : cmFileListGeneratorBase()
-    , Names(r.Names)
+    : Names(r.Names)
     , Extension(r.Extension)
   {
   }
@@ -1917,7 +2146,7 @@ private:
       for (std::string name : this->Names) {
         name += this->Extension;
         if (cmsysString_strcasecmp(fname, name.c_str()) == 0) {
-          matches.push_back(fname);
+          matches.emplace_back(fname);
         }
       }
     }
@@ -1940,15 +2169,13 @@ private:
 class cmFileListGeneratorCaseInsensitive : public cmFileListGeneratorBase
 {
 public:
-  cmFileListGeneratorCaseInsensitive(std::string const& str)
-    : cmFileListGeneratorBase()
-    , String(str)
+  cmFileListGeneratorCaseInsensitive(std::string str)
+    : String(std::move(str))
   {
   }
   cmFileListGeneratorCaseInsensitive(
     cmFileListGeneratorCaseInsensitive const& r)
-    : cmFileListGeneratorBase()
-    , String(r.String)
+    : String(r.String)
   {
   }
 
@@ -1984,14 +2211,12 @@ private:
 class cmFileListGeneratorGlob : public cmFileListGeneratorBase
 {
 public:
-  cmFileListGeneratorGlob(std::string const& str)
-    : cmFileListGeneratorBase()
-    , Pattern(str)
+  cmFileListGeneratorGlob(std::string str)
+    : Pattern(std::move(str))
   {
   }
   cmFileListGeneratorGlob(cmFileListGeneratorGlob const& r)
-    : cmFileListGeneratorBase()
-    , Pattern(r.Pattern)
+    : Pattern(r.Pattern)
   {
   }
 
@@ -2000,8 +2225,7 @@ private:
   bool Search(std::string const& parent, cmFileList& lister) override
   {
     // Glob the set of matching files.
-    std::string expr = parent;
-    expr += this->Pattern;
+    std::string expr = cmStrCat(parent, this->Pattern);
     cmsys::Glob g;
     if (!g.FindFiles(expr)) {
       return false;
@@ -2010,10 +2234,8 @@ private:
 
     // Look for directories among the matches.
     for (std::string const& f : files) {
-      if (cmSystemTools::FileIsDirectory(f)) {
-        if (this->Consider(f, lister)) {
-          return true;
-        }
+      if (this->Consider(f, lister)) {
+        return true;
       }
     }
     return false;
@@ -2027,9 +2249,6 @@ private:
 bool cmFindPackageCommand::SearchPrefix(std::string const& prefix_in)
 {
   assert(!prefix_in.empty() && prefix_in.back() == '/');
-  if (this->DebugMode) {
-    fprintf(stderr, "Checking prefix [%s]\n", prefix_in.c_str());
-  }
 
   // Skip this if the prefix does not exist.
   if (!cmSystemTools::FileIsDirectory(prefix_in)) {
@@ -2084,16 +2303,16 @@ bool cmFindPackageCommand::SearchPrefix(std::string const& prefix_in)
     common.push_back("lib/" + this->LibraryArchitecture);
   }
   if (this->UseLib32Paths) {
-    common.push_back("lib32");
+    common.emplace_back("lib32");
   }
   if (this->UseLib64Paths) {
-    common.push_back("lib64");
+    common.emplace_back("lib64");
   }
   if (this->UseLibx32Paths) {
-    common.push_back("libx32");
+    common.emplace_back("libx32");
   }
-  common.push_back("lib");
-  common.push_back("share");
+  common.emplace_back("lib");
+  common.emplace_back("share");
 
   //  PREFIX/(lib/ARCH|lib*|share)/cmake/(Foo|foo|FOO).*/
   {
@@ -2183,9 +2402,6 @@ bool cmFindPackageCommand::SearchPrefix(std::string const& prefix_in)
 bool cmFindPackageCommand::SearchFrameworkPrefix(std::string const& prefix_in)
 {
   assert(!prefix_in.empty() && prefix_in.back() == '/');
-  if (this->DebugMode) {
-    fprintf(stderr, "Checking framework prefix [%s]\n", prefix_in.c_str());
-  }
 
   // Strip the trailing slash because the path generator is about to
   // add one.
@@ -2244,9 +2460,6 @@ bool cmFindPackageCommand::SearchFrameworkPrefix(std::string const& prefix_in)
 bool cmFindPackageCommand::SearchAppBundlePrefix(std::string const& prefix_in)
 {
   assert(!prefix_in.empty() && prefix_in.back() == '/');
-  if (this->DebugMode) {
-    fprintf(stderr, "Checking bundle prefix [%s]\n", prefix_in.c_str());
-  }
 
   // Strip the trailing slash because the path generator is about to
   // add one.
@@ -2279,3 +2492,9 @@ bool cmFindPackageCommand::SearchAppBundlePrefix(std::string const& prefix_in)
 }
 
 // TODO: Debug cmsys::Glob double slash problem.
+
+bool cmFindPackage(std::vector<std::string> const& args,
+                   cmExecutionStatus& status)
+{
+  return cmFindPackageCommand(status).InitialPass(args);
+}

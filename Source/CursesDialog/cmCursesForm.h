@@ -1,21 +1,23 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCursesForm_h
-#define cmCursesForm_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmCursesStandardIncludes.h"
+#include <string>
 
 #include "cmsys/FStream.hxx"
 
+#include "cmCursesStandardIncludes.h"
+
 class cmCursesForm
 {
-  CM_DISABLE_COPY(cmCursesForm)
-
 public:
   cmCursesForm();
   virtual ~cmCursesForm();
+
+  cmCursesForm(cmCursesForm const&) = delete;
+  cmCursesForm& operator=(cmCursesForm const&) = delete;
 
   // Description:
   // Handle user input.
@@ -33,7 +35,7 @@ public:
   // Description:
   // During a CMake run, an error handle should add errors
   // to be displayed afterwards.
-  virtual void AddError(const char*, const char*) {}
+  virtual void AddError(const std::string&, const char*) {}
 
   // Description:
   // Turn debugging on. This will create ccmakelog.txt.
@@ -59,5 +61,3 @@ protected:
 
   FORM* Form;
 };
-
-#endif // cmCursesForm_h

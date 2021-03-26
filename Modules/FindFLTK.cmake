@@ -5,14 +5,14 @@
 FindFLTK
 --------
 
-Find the FLTK library
+Find the Fast Light Toolkit (FLTK) library
 
 Input Variables
 ^^^^^^^^^^^^^^^
 
 By default this module will search for all of the FLTK components and
-add them to the FLTK_LIBRARIES variable.  You can limit the components
-which get placed in FLTK_LIBRARIES by defining one or more of the
+add them to the ``FLTK_LIBRARIES`` variable.  You can limit the components
+which get placed in ``FLTK_LIBRARIES`` by defining one or more of the
 following three options:
 
 ``FLTK_SKIP_OPENGL``
@@ -77,6 +77,10 @@ The following cache variables are also available to set or use:
 
 ``FLTK_IMAGES_LIBRARY_DEBUG``
   The FLTK Images library (debug)
+
+.. versionadded:: 3.11
+  Debug and Release variants are found separately and use per-configuration
+  variables.
 #]=======================================================================]
 
 if(NOT FLTK_SKIP_OPENGL)

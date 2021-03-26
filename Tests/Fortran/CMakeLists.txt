@@ -46,7 +46,7 @@ function(test_fortran_c_interface_module)
   FortranCInterface_VERIFY()
   FortranCInterface_VERIFY(CXX)
   if(CMAKE_Fortran_COMPILER_SUPPORTS_F90)
-    if(NOT CMAKE_Fortran_COMPILER_ID MATCHES "SunPro|MIPSpro|PathScale|Absoft")
+    if(NOT CMAKE_Fortran_COMPILER_ID MATCHES "SunPro|PathScale|Absoft")
       set(module_expected 1)
     endif()
     if(FortranCInterface_MODULE_FOUND OR module_expected)
@@ -99,6 +99,11 @@ function(test_fortran_c_interface_module)
   target_link_libraries(myc myfort)
   set_property(TARGET myc PROPERTY COMPILE_DEFINITIONS ${MYC_DEFS})
 
+  add_library(myfort_obj OBJECT mysub.f)
+  add_library(myc_use_obj myc.c $<TARGET_OBJECTS:myfort_obj>)
+  add_executable(mainc_use_obj mainc.c)
+  target_link_libraries(mainc_use_obj myc_use_obj)
+
   add_library(mycxx mycxx.cxx)
   target_link_libraries(mycxx myc)
 
@@ -115,7 +120,7 @@ endfunction()
 # if the id's match or the compilers are compatible, then
 # call the test_fortran_c_interface_module function
 if("${CMAKE_Fortran_COMPILER_ID}:${CMAKE_C_COMPILER_ID}" MATCHES
-    "(Intel:MSVC|Absoft:GNU)"
+    "(Intel(LLVM)?:MSVC|Absoft:GNU)"
     OR ("${CMAKE_Fortran_COMPILER_ID}" STREQUAL "${CMAKE_C_COMPILER_ID}" ))
   test_fortran_c_interface_module()
 else()
@@ -126,7 +131,7 @@ else()
   # as a language, cmake needs language specific versions
   # of these variables....
   if(WIN32 AND CMAKE_Fortran_COMPILER_ID MATCHES "GNU")
-    set(CMAKE_CREATE_CONSOLE_EXE )
+    set(CMAKE_Fortran_CREATE_CONSOLE_EXE )
     set(CMAKE_LIBRARY_PATH_FLAG "-L")
     set(CMAKE_LINK_LIBRARY_FLAG "-l")
     set(CMAKE_LINK_LIBRARY_SUFFIX )

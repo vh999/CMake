@@ -12,8 +12,11 @@ Determine the number of processors/cores and save value in ${var}
 Sets the variable named ${var} to the number of physical cores
 available on the machine if the information can be determined.
 Otherwise it is set to 0.  Currently this functionality is implemented
-for AIX, cygwin, FreeBSD, HPUX, IRIX, Linux, macOS, QNX, Sun and
+for AIX, cygwin, FreeBSD, HPUX, Linux, macOS, QNX, Sun and
 Windows.
+
+.. versionchanged:: 3.15
+  On Linux, returns the container CPU count instead of the host CPU count.
 
 This function is guaranteed to return a positive integer (>=1) if it
 succeeds.  It returns 0 if there's a problem determining the processor
@@ -70,6 +73,20 @@ function(ProcessorCount var)
   endif()
 
   if(NOT count)
+    # Linux (systems with nproc):
+    # Prefer nproc to getconf if available as getconf may return the host CPU count in Linux containers
+    find_program(ProcessorCount_cmd_nproc nproc)
+    mark_as_advanced(ProcessorCount_cmd_nproc)
+    if(ProcessorCount_cmd_nproc)
+      execute_process(COMMAND ${ProcessorCount_cmd_nproc}
+        ERROR_QUIET
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        OUTPUT_VARIABLE count)
+      #message("ProcessorCount: trying nproc '${ProcessorCount_cmd_nproc}'")
+    endif()
+  endif()
+
+  if(NOT count)
     # Linux (systems with getconf):
     find_program(ProcessorCount_cmd_getconf getconf)
     mark_as_advanced(ProcessorCount_cmd_getconf)
@@ -115,22 +132,6 @@ function(ProcessorCount var)
   endif()
 
   if(NOT count)
-    # IRIX (systems with hinv):
-    find_program(ProcessorCount_cmd_hinv hinv
-      PATHS /sbin)
-    mark_as_advanced(ProcessorCount_cmd_hinv)
-    if(ProcessorCount_cmd_hinv)
-      execute_process(COMMAND ${ProcessorCount_cmd_hinv}
-        ERROR_QUIET
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        OUTPUT_VARIABLE hinv_output)
-      string(REGEX MATCHALL "([0-9]+) .* Processors" procs "${hinv_output}")
-      set(count "${CMAKE_MATCH_1}")
-      #message("ProcessorCount: trying hinv '${ProcessorCount_cmd_hinv}'")
-    endif()
-  endif()
-
-  if(NOT count)
     # AIX (systems with lsconf):
     find_program(ProcessorCount_cmd_lsconf lsconf
       PATHS /usr/sbin)
@@ -170,9 +171,13 @@ function(ProcessorCount var)
         ERROR_QUIET
         OUTPUT_STRIP_TRAILING_WHITESPACE
         OUTPUT_VARIABLE psrinfo_output)
-      string(REGEX MATCH "([0-9]+) virtual processor" procs "${psrinfo_output}")
-      set(count "${CMAKE_MATCH_1}")
-      #message("ProcessorCount: trying psrinfo -p -v '${ProcessorCount_cmd_prvinfo}'")
+      string(REGEX MATCHALL "has [0-9]+ virtual processor" procs "${psrinfo_output}")
+      set(count "")
+      foreach(proc ${procs})
+        string(REGEX MATCH "has ([0-9]+) virtual" res ${proc})
+        math(EXPR count "${count} + ${CMAKE_MATCH_1}")
+      endforeach()
+      #message("ProcessorCount: trying '${ProcessorCount_cmd_psrinfo}' -p -v")
     else()
       # Sun (systems where uname -X emits "NumCPU" in its output):
       find_program(ProcessorCount_cmd_uname uname)

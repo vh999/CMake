@@ -2,50 +2,68 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmInstallDirectoryGenerator.h"
 
+#include <utility>
+
 #include "cmGeneratorExpression.h"
 #include "cmInstallType.h"
 #include "cmLocalGenerator.h"
 #include "cmMakefile.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
 
-#include <memory> // IWYU pragma: keep
-
 cmInstallDirectoryGenerator::cmInstallDirectoryGenerator(
-  std::vector<std::string> const& dirs, const char* dest,
-  const char* file_permissions, const char* dir_permissions,
-  std::vector<std::string> const& configurations, const char* component,
-  MessageLevel message, bool exclude_from_all, const char* literal_args,
-  bool optional)
+  std::vector<std::string> const& dirs, std::string const& dest,
+  std::string file_permissions, std::string dir_permissions,
+  std::vector<std::string> const& configurations, std::string const& component,
+  MessageLevel message, bool exclude_from_all, std::string literal_args,
+  bool optional, cmListFileBacktrace backtrace)
   : cmInstallGenerator(dest, configurations, component, message,
-                       exclude_from_all)
+                       exclude_from_all, std::move(backtrace))
   , LocalGenerator(nullptr)
   , Directories(dirs)
-  , FilePermissions(file_permissions)
-  , DirPermissions(dir_permissions)
-  , LiteralArguments(literal_args)
+  , FilePermissions(std::move(file_permissions))
+  , DirPermissions(std::move(dir_permissions))
+  , LiteralArguments(std::move(literal_args))
   , Optional(optional)
 {
   // We need per-config actions if destination have generator expressions.
-  if (cmGeneratorExpression::Find(Destination) != std::string::npos) {
+  if (cmGeneratorExpression::Find(this->Destination) != std::string::npos) {
     this->ActionsPerConfig = true;
   }
 
   // We need per-config actions if any directories have generator expressions.
-  for (std::vector<std::string>::const_iterator i = dirs.begin();
-       !this->ActionsPerConfig && i != dirs.end(); ++i) {
-    if (cmGeneratorExpression::Find(*i) != std::string::npos) {
-      this->ActionsPerConfig = true;
+  if (!this->ActionsPerConfig) {
+    for (std::string const& dir : dirs) {
+      if (cmGeneratorExpression::Find(dir) != std::string::npos) {
+        this->ActionsPerConfig = true;
+        break;
+      }
     }
   }
 }
 
-cmInstallDirectoryGenerator::~cmInstallDirectoryGenerator()
+cmInstallDirectoryGenerator::~cmInstallDirectoryGenerator() = default;
+
+bool cmInstallDirectoryGenerator::Compute(cmLocalGenerator* lg)
 {
+  this->LocalGenerator = lg;
+  return true;
 }
 
-void cmInstallDirectoryGenerator::Compute(cmLocalGenerator* lg)
+std::vector<std::string> cmInstallDirectoryGenerator::GetDirectories(
+  std::string const& config) const
 {
-  LocalGenerator = lg;
+  std::vector<std::string> directories;
+  if (this->ActionsPerConfig) {
+    for (std::string const& f : this->Directories) {
+      cmExpandList(
+        cmGeneratorExpression::Evaluate(f, this->LocalGenerator, config),
+        directories);
+    }
+  } else {
+    directories = this->Directories;
+  }
+  return directories;
 }
 
 void cmInstallDirectoryGenerator::GenerateScriptActions(std::ostream& os,
@@ -61,19 +79,13 @@ void cmInstallDirectoryGenerator::GenerateScriptActions(std::ostream& os,
 void cmInstallDirectoryGenerator::GenerateScriptForConfig(
   std::ostream& os, const std::string& config, Indent indent)
 {
-  std::vector<std::string> dirs;
-  cmGeneratorExpression ge;
-  for (std::string const& d : this->Directories) {
-    std::unique_ptr<cmCompiledGeneratorExpression> cge = ge.Parse(d);
-    cmSystemTools::ExpandListArgument(
-      cge->Evaluate(this->LocalGenerator, config), dirs);
-  }
+  std::vector<std::string> dirs = this->GetDirectories(config);
 
   // Make sure all dirs have absolute paths.
   cmMakefile const& mf = *this->LocalGenerator->GetMakefile();
   for (std::string& d : dirs) {
     if (!cmSystemTools::FileIsFullPath(d)) {
-      d = mf.GetCurrentSourceDirectory() + "/" + d;
+      d = cmStrCat(mf.GetCurrentSourceDirectory(), "/", d);
     }
   }
 
@@ -96,6 +108,6 @@ void cmInstallDirectoryGenerator::AddDirectoryInstallRule(
 std::string cmInstallDirectoryGenerator::GetDestination(
   std::string const& config) const
 {
-  cmGeneratorExpression ge;
-  return ge.Parse(this->Destination)->Evaluate(this->LocalGenerator, config);
+  return cmGeneratorExpression::Evaluate(this->Destination,
+                                         this->LocalGenerator, config);
 }

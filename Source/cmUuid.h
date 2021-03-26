@@ -1,7 +1,6 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmUuid_h
-#define cmUuid_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
@@ -15,8 +14,6 @@
 class cmUuid
 {
 public:
-  cmUuid();
-
   std::string FromMd5(std::vector<unsigned char> const& uuidNamespace,
                       std::string const& name) const;
 
@@ -42,8 +39,4 @@ private:
   std::string BinaryToString(const unsigned char* input) const;
 
   bool IntFromHexDigit(char input, char& output) const;
-
-  std::vector<int> Groups;
 };
-
-#endif

@@ -5,7 +5,10 @@
 FindLTTngUST
 ------------
 
-This module finds the `LTTng-UST <http://lttng.org/>`__ library.
+.. versionadded:: 3.6
+
+Find
+`Linux Trace Toolkit Next Generation (LTTng-UST) <http://lttng.org/>`__ library.
 
 Imported target
 ^^^^^^^^^^^^^^^

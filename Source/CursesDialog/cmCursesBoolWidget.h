@@ -1,7 +1,6 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCursesBoolWidget_h
-#define cmCursesBoolWidget_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
@@ -12,10 +11,11 @@ class cmCursesMainForm;
 
 class cmCursesBoolWidget : public cmCursesWidget
 {
-  CM_DISABLE_COPY(cmCursesBoolWidget)
-
 public:
   cmCursesBoolWidget(int width, int height, int left, int top);
+
+  cmCursesBoolWidget(cmCursesBoolWidget const&) = delete;
+  cmCursesBoolWidget& operator=(cmCursesBoolWidget const&) = delete;
 
   // Description:
   // Handle user input. Called by the container of this widget
@@ -28,5 +28,3 @@ public:
   void SetValueAsBool(bool value);
   bool GetValueAsBool();
 };
-
-#endif // cmCursesBoolWidget_h

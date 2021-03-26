@@ -21,7 +21,7 @@ Binary Targets
 
 Executables and libraries are defined using the :command:`add_executable`
 and :command:`add_library` commands.  The resulting binary files have
-appropriate prefixes, suffixes and extensions for the platform targeted.
+appropriate :prop_tgt:`PREFIX`, :prop_tgt:`SUFFIX` and extensions for the platform targeted.
 Dependencies between binary targets are expressed using the
 :command:`target_link_libraries` command:
 
@@ -31,7 +31,7 @@ Dependencies between binary targets are expressed using the
   add_executable(zipapp zipapp.cpp)
   target_link_libraries(zipapp archive)
 
-``archive`` is defined as a static library -- an archive containing objects
+``archive`` is defined as a ``STATIC`` library -- an archive containing objects
 compiled from ``archive.cpp``, ``zip.cpp``, and ``lzma.cpp``.  ``zipapp``
 is defined as an executable formed by compiling and linking ``zipapp.cpp``.
 When linking the ``zipapp`` executable, the ``archive`` static library is
@@ -59,7 +59,7 @@ Binary Library Types
 Normal Libraries
 ^^^^^^^^^^^^^^^^
 
-By default, the :command:`add_library` command defines a static library,
+By default, the :command:`add_library` command defines a ``STATIC`` library,
 unless a type is specified.  A type may be specified when using the command:
 
 .. code-block:: cmake
@@ -96,6 +96,9 @@ Apple Frameworks
 
 A ``SHARED`` library may be marked with the :prop_tgt:`FRAMEWORK`
 target property to create an macOS or iOS Framework Bundle.
+A library with the ``FRAMEWORK`` target property should also set the
+:prop_tgt:`FRAMEWORK_VERSION` target property.  This property is typically
+set to the value of "A" by macOS conventions.
 The ``MACOSX_FRAMEWORK_IDENTIFIER`` sets ``CFBundleIdentifier`` key
 and it uniquely identifies the bundle.
 
@@ -104,7 +107,7 @@ and it uniquely identifies the bundle.
   add_library(MyFramework SHARED MyFramework.cpp)
   set_target_properties(MyFramework PROPERTIES
     FRAMEWORK TRUE
-    FRAMEWORK_VERSION A
+    FRAMEWORK_VERSION A # Version "A" is macOS convention
     MACOSX_FRAMEWORK_IDENTIFIER org.cmake.MyFramework
   )
 
@@ -115,7 +118,10 @@ Object Libraries
 
 The ``OBJECT`` library type defines a non-archival collection of object files
 resulting from compiling the given source files.  The object files collection
-may be used as source inputs to other targets:
+may be used as source inputs to other targets by using the syntax
+``$<TARGET_OBJECTS:name>``.  This is a
+:manual:`generator expression <cmake-generator-expressions(7)>` that can be
+used to supply the ``OBJECT`` library content to other targets:
 
 .. code-block:: cmake
 
@@ -141,8 +147,8 @@ Alternatively, object libraries may be linked into other targets:
   target_link_libraries(test_exe archive)
 
 The link (or archiving) step of those other targets will use the object
-files from object libraries that are *directly* linked.  Additionally,
-usage requirements of the object libraries will be honored when compiling
+files from ``OBJECT`` libraries that are *directly* linked.  Additionally,
+usage requirements of the ``OBJECT`` libraries will be honored when compiling
 sources in those other targets.  Furthermore, those usage requirements
 will propagate transitively to dependents of those other targets.
 
@@ -365,16 +371,20 @@ non-compatible requirements :manual:`cmake(1)` issues a diagnostic:
   target_link_libraries(exe2 lib1 lib2)
 
 The ``lib1`` requirement ``INTERFACE_POSITION_INDEPENDENT_CODE`` is not
-"compatible" with the ``POSITION_INDEPENDENT_CODE`` property of the ``exe1``
-target.  The library requires that consumers are built as
+"compatible" with the :prop_tgt:`POSITION_INDEPENDENT_CODE` property of
+the ``exe1`` target.  The library requires that consumers are built as
 position-independent-code, while the executable specifies to not built as
 position-independent-code, so a diagnostic is issued.
 
 The ``lib1`` and ``lib2`` requirements are not "compatible".  One of them
 requires that consumers are built as position-independent-code, while
 the other requires that consumers are not built as position-independent-code.
-Because ``exe2`` links to both and they are in conflict, a diagnostic is
-issued.
+Because ``exe2`` links to both and they are in conflict, a CMake error message
+is issued::
+
+  CMake Error: The INTERFACE_POSITION_INDEPENDENT_CODE property of "lib2" does
+  not agree with the value of POSITION_INDEPENDENT_CODE already determined
+  for "exe2".
 
 To be "compatible", the :prop_tgt:`POSITION_INDEPENDENT_CODE` property,
 if set must be either the same, in a boolean sense, as the
@@ -547,10 +557,10 @@ is not known until build-time.  Therefore, code such as
     target_compile_definitions(exe1 PRIVATE DEBUG_BUILD)
   endif()
 
-may appear to work for ``Makefile`` based and ``Ninja`` generators, but is not
-portable to IDE generators.  Additionally, the :prop_tgt:`IMPORTED`
-configuration-mappings are not accounted for with code like this, so it should
-be avoided.
+may appear to work for :ref:`Makefile Generators` and :generator:`Ninja`
+generators, but is not portable to IDE generators.  Additionally,
+the :prop_tgt:`IMPORTED` configuration-mappings are not accounted for
+with code like this, so it should be avoided.
 
 The unary ``TARGET_PROPERTY`` generator expression and the ``TARGET_POLICY``
 generator expression are evaluated with the consuming target context.  This
@@ -699,7 +709,7 @@ found in those directories.  This behavior for :ref:`imported targets` may
 be controlled by setting the :prop_tgt:`NO_SYSTEM_FROM_IMPORTED` target
 property on the *consumers* of imported targets.
 
-If a binary target is linked transitively to a Mac OX framework, the
+If a binary target is linked transitively to a macOS :prop_tgt:`FRAMEWORK`, the
 ``Headers`` directory of the framework is also treated as a usage requirement.
 This has the same effect as passing the framework directory as an include
 directory.
@@ -732,7 +742,7 @@ As the value of the :prop_tgt:`POSITION_INDEPENDENT_CODE` property of
 the ``exe1`` target is dependent on the linked libraries (``lib3``), and the
 edge of linking ``exe1`` is determined by the same
 :prop_tgt:`POSITION_INDEPENDENT_CODE` property, the dependency graph above
-contains a cycle.  :manual:`cmake(1)` issues a diagnostic in this case.
+contains a cycle.  :manual:`cmake(1)` issues an error message.
 
 .. _`Output Artifacts`:
 
@@ -810,6 +820,10 @@ An *archive* output artifact of a buildsystem target may be:
 * On DLL platforms: the import library file (e.g. ``.lib``) of an
   executable target created by the :command:`add_executable` command
   when its :prop_tgt:`ENABLE_EXPORTS` target property is set.
+
+* On AIX: the linker import file (e.g. ``.imp``) of an executable target
+  created by the :command:`add_executable` command when its
+  :prop_tgt:`ENABLE_EXPORTS` target property is set.
 
 The :prop_tgt:`ARCHIVE_OUTPUT_DIRECTORY` and :prop_tgt:`ARCHIVE_OUTPUT_NAME`
 target properties may be used to control archive output artifact locations
@@ -918,8 +932,8 @@ property from it:
 Interface Libraries
 -------------------
 
-An ``INTERFACE`` target has no :prop_tgt:`LOCATION` and is mutable, but is
-otherwise similar to an :prop_tgt:`IMPORTED` target.
+An ``INTERFACE`` library target does not compile sources and does not
+produce a library artifact on disk, so it has no :prop_tgt:`LOCATION`.
 
 It may specify usage requirements such as
 :prop_tgt:`INTERFACE_INCLUDE_DIRECTORIES`,
@@ -933,11 +947,22 @@ Only the ``INTERFACE`` modes of the :command:`target_include_directories`,
 :command:`target_sources`, and :command:`target_link_libraries` commands
 may be used with ``INTERFACE`` libraries.
 
+Since CMake 3.19, an ``INTERFACE`` library target may optionally contain
+source files.  An interface library that contains source files will be
+included as a build target in the generated buildsystem.  It does not
+compile sources, but may contain custom commands to generate other sources.
+Additionally, IDEs will show the source files as part of the target for
+interactive reading and editing.
+
 A primary use-case for ``INTERFACE`` libraries is header-only libraries.
 
 .. code-block:: cmake
 
-  add_library(Eigen INTERFACE)
+  add_library(Eigen INTERFACE
+    src/eigen.h
+    src/vector.h
+    src/matrix.h
+    )
   target_include_directories(Eigen INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
     $<INSTALL_INTERFACE:include/Eigen>
@@ -971,23 +996,17 @@ This way, the build specification of ``exe1`` is expressed entirely as linked
 targets, and the complexity of compiler-specific flags is encapsulated in an
 ``INTERFACE`` library target.
 
-The properties permitted to be set on or read from an ``INTERFACE`` library
-are:
-
-* Properties matching ``INTERFACE_*``
-* Built-in properties matching ``COMPATIBLE_INTERFACE_*``
-* ``EXPORT_NAME``
-* ``IMPORTED``
-* ``NAME``
-* Properties matching ``IMPORTED_LIBNAME_*``
-* Properties matching ``MAP_IMPORTED_CONFIG_*``
-
 ``INTERFACE`` libraries may be installed and exported.  Any content they refer
 to must be installed separately:
 
 .. code-block:: cmake
 
-  add_library(Eigen INTERFACE)
+  set(Eigen_headers
+    src/eigen.h
+    src/vector.h
+    src/matrix.h
+    )
+  add_library(Eigen INTERFACE ${Eigen_headers})
   target_include_directories(Eigen INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
     $<INSTALL_INTERFACE:include/Eigen>
@@ -997,9 +1016,6 @@ to must be installed separately:
   install(EXPORT eigenExport NAMESPACE Upstream::
     DESTINATION lib/cmake/Eigen
   )
-  install(FILES
-      ${CMAKE_CURRENT_SOURCE_DIR}/src/eigen.h
-      ${CMAKE_CURRENT_SOURCE_DIR}/src/vector.h
-      ${CMAKE_CURRENT_SOURCE_DIR}/src/matrix.h
+  install(FILES ${Eigen_headers}
     DESTINATION include/Eigen
   )

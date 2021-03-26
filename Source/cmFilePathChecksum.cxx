@@ -2,31 +2,30 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmFilePathChecksum.h"
 
+#include <vector>
+
 #include "cmBase32.h"
 #include "cmCryptoHash.h"
 #include "cmMakefile.h"
 #include "cmSystemTools.h"
 
-#include <vector>
-
-cmFilePathChecksum::cmFilePathChecksum()
-{
-}
+cmFilePathChecksum::cmFilePathChecksum() = default;
 
 cmFilePathChecksum::cmFilePathChecksum(std::string const& currentSrcDir,
                                        std::string const& currentBinDir,
                                        std::string const& projectSrcDir,
                                        std::string const& projectBinDir)
 {
-  setupParentDirs(currentSrcDir, currentBinDir, projectSrcDir, projectBinDir);
+  this->setupParentDirs(currentSrcDir, currentBinDir, projectSrcDir,
+                        projectBinDir);
 }
 
 cmFilePathChecksum::cmFilePathChecksum(cmMakefile* makefile)
 {
-  setupParentDirs(makefile->GetCurrentSourceDirectory(),
-                  makefile->GetCurrentBinaryDirectory(),
-                  makefile->GetHomeDirectory(),
-                  makefile->GetHomeOutputDirectory());
+  this->setupParentDirs(makefile->GetCurrentSourceDirectory(),
+                        makefile->GetCurrentBinaryDirectory(),
+                        makefile->GetHomeDirectory(),
+                        makefile->GetHomeOutputDirectory());
 }
 
 void cmFilePathChecksum::setupParentDirs(std::string const& currentSrcDir,
@@ -76,12 +75,12 @@ std::string cmFilePathChecksum::get(std::string const& filePath) const
     cmCryptoHash(cmCryptoHash::AlgoSHA256).ByteHashString(relSeed + relPath);
 
   // Convert binary checksum to string
-  return cmBase32Encoder().encodeString(&hashBytes.front(), hashBytes.size(),
+  return cmBase32Encoder().encodeString(hashBytes.data(), hashBytes.size(),
                                         false);
 }
 
 std::string cmFilePathChecksum::getPart(std::string const& filePath,
                                         size_t length) const
 {
-  return get(filePath).substr(0, length);
+  return this->get(filePath).substr(0, length);
 }

@@ -2,7 +2,7 @@
 # file Copyright.txt or https://cmake.org/licensing for details.
 
 if(NOT ${CMAKE_GENERATOR} MATCHES "Visual Studio ([^9]|[9][0-9])")
-   message(FATAL_ERROR
+  message(FATAL_ERROR
     "C# is currently only supported for Microsoft Visual Studio 2010 and later.")
 endif()
 
@@ -18,7 +18,6 @@ if(NOT CMAKE_CSharp_COMPILER_ID_RUN)
   set(CMAKE_CSharp_COMPILER_ID_RUN 1)
 
   # Try to identify the compiler.
-  set(CMAKE_CSharp_COMPILER_ID_STRINGS_PARAMETERS ENCODING UTF-16LE)
   set(CMAKE_CSharp_COMPILER_ID)
   include(${CMAKE_ROOT}/Modules/CMakeDetermineCompilerId.cmake)
   CMAKE_DETERMINE_COMPILER_ID(CSharp CSFLAGS CMakeCSharpCompilerId.cs)

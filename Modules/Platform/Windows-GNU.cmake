@@ -25,7 +25,7 @@ endif()
 
 if(MINGW)
   set(CMAKE_FIND_LIBRARY_PREFIXES "lib" "")
-  set(CMAKE_FIND_LIBRARY_SUFFIXES ".dll" ".dll.a" ".a" ".lib")
+  set(CMAKE_FIND_LIBRARY_SUFFIXES ".dll.a" ".a" ".lib")
   set(CMAKE_C_STANDARD_LIBRARIES_INIT "-lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32")
   set(CMAKE_CXX_STANDARD_LIBRARIES_INIT "${CMAKE_C_STANDARD_LIBRARIES_INIT}")
 endif()
@@ -35,7 +35,6 @@ set(CMAKE_LIBRARY_PATH_FLAG "-L")
 set(CMAKE_LINK_LIBRARY_FLAG "-l")
 set(CMAKE_LINK_DEF_FILE_FLAG "") # Empty string: passing the file is enough
 set(CMAKE_LINK_LIBRARY_SUFFIX "")
-set(CMAKE_CREATE_WIN32_EXE  "-mwindows")
 
 set(CMAKE_GNULD_IMAGE_VERSION
   "-Wl,--major-image-version,<TARGET_VERSION_MAJOR>,--minor-image-version,<TARGET_VERSION_MINOR>")
@@ -47,16 +46,12 @@ if("${_help}" MATCHES "GNU ld .* 2\\.1[1-6]")
   set(__WINDOWS_GNU_LD_RESPONSE 0)
 endif()
 
-if(NOT CMAKE_GENERATOR_RC AND CMAKE_GENERATOR MATCHES "Unix Makefiles")
-  set(CMAKE_GENERATOR_RC windres)
-endif()
-
 macro(__windows_compiler_gnu lang)
 
   if(MSYS OR MINGW)
     # Create archiving rules to support large object file lists for static libraries.
     set(CMAKE_${lang}_ARCHIVE_CREATE "<CMAKE_AR> qc <TARGET> <LINK_FLAGS> <OBJECTS>")
-    set(CMAKE_${lang}_ARCHIVE_APPEND "<CMAKE_AR> q  <TARGET> <LINK_FLAGS> <OBJECTS>")
+    set(CMAKE_${lang}_ARCHIVE_APPEND "<CMAKE_AR> q <TARGET> <LINK_FLAGS> <OBJECTS>")
     set(CMAKE_${lang}_ARCHIVE_FINISH "<CMAKE_RANLIB> <TARGET>")
 
     # Initialize C link type selection flags.  These flags are used when
@@ -72,6 +67,7 @@ macro(__windows_compiler_gnu lang)
   # No -fPIC on Windows
   set(CMAKE_${lang}_COMPILE_OPTIONS_PIC "")
   set(CMAKE_${lang}_COMPILE_OPTIONS_PIE "")
+  set(_CMAKE_${lang}_PIE_MAY_BE_SUPPORTED_BY_LINKER NO)
   set(CMAKE_${lang}_LINK_OPTIONS_PIE "")
   set(CMAKE_${lang}_LINK_OPTIONS_NO_PIE "")
   set(CMAKE_SHARED_LIBRARY_${lang}_FLAGS "")
@@ -107,7 +103,8 @@ macro(__windows_compiler_gnu lang)
   set(CMAKE_${lang}_CREATE_SHARED_LIBRARY
     "<CMAKE_${lang}_COMPILER> <CMAKE_SHARED_LIBRARY_${lang}_FLAGS> <LANGUAGE_COMPILE_FLAGS> <LINK_FLAGS> <CMAKE_SHARED_LIBRARY_CREATE_${lang}_FLAGS> -o <TARGET> -Wl,--out-implib,<TARGET_IMPLIB> ${CMAKE_GNULD_IMAGE_VERSION} <OBJECTS> <LINK_LIBRARIES>")
   set(CMAKE_${lang}_LINK_EXECUTABLE
-    "<CMAKE_${lang}_COMPILER> <FLAGS> <CMAKE_${lang}_LINK_FLAGS> <LINK_FLAGS> <OBJECTS>  -o <TARGET> -Wl,--out-implib,<TARGET_IMPLIB> ${CMAKE_GNULD_IMAGE_VERSION} <LINK_LIBRARIES>")
+    "<CMAKE_${lang}_COMPILER> <FLAGS> <CMAKE_${lang}_LINK_FLAGS> <LINK_FLAGS> <OBJECTS> -o <TARGET> -Wl,--out-implib,<TARGET_IMPLIB> ${CMAKE_GNULD_IMAGE_VERSION} <LINK_LIBRARIES>")
+  set(CMAKE_${lang}_CREATE_WIN32_EXE "-mwindows")
 
   list(APPEND CMAKE_${lang}_ABI_FILES "Platform/Windows-GNU-${lang}-ABI")
 
@@ -123,7 +120,7 @@ macro(__windows_compiler_gnu lang)
       string(REPLACE "<OBJECTS>" "-Wl,--whole-archive <OBJECT_DIR>/objects.a -Wl,--no-whole-archive"
         CMAKE_${lang}_${rule} "${CMAKE_${lang}_${rule}}")
       set(CMAKE_${lang}_${rule}
-        "<CMAKE_COMMAND> -E remove -f <OBJECT_DIR>/objects.a"
+        "<CMAKE_COMMAND> -E rm -f <OBJECT_DIR>/objects.a"
         "<CMAKE_AR> cr <OBJECT_DIR>/objects.a <OBJECTS>"
         "${CMAKE_${lang}_${rule}}"
         )
@@ -131,7 +128,7 @@ macro(__windows_compiler_gnu lang)
   endif()
 
   if(NOT CMAKE_RC_COMPILER_INIT AND NOT CMAKE_GENERATOR_RC)
-    set(CMAKE_RC_COMPILER_INIT windres)
+    set(CMAKE_RC_COMPILER_INIT ${_CMAKE_TOOLCHAIN_PREFIX}windres)
   endif()
 
   enable_language(RC)
@@ -151,7 +148,7 @@ macro(__windows_compiler_gnu_abi lang)
 
     # Query the VS Installer tool for locations of VS 2017 and above.
     set(_vs_installer_paths "")
-    foreach(vs RANGE 15 15 -1) # change the first number to the largest supported version
+    foreach(vs RANGE 16 15 -1) # change the first number to the largest supported version
       cmake_host_system_information(RESULT _vs_dir QUERY VS_${vs}_DIR)
       if(_vs_dir)
         list(APPEND _vs_installer_paths "${_vs_dir}/VC/Auxiliary/Build")

@@ -28,6 +28,9 @@ encourage projects to set policies based on CMake versions:
 
   cmake_policy(VERSION <min>[...<max>])
 
+.. versionadded:: 3.12
+  The optional ``<max>`` version.
+
 ``<min>`` and the optional ``<max>`` are each CMake versions of the form
 ``major.minor[.patch[.tweak]]``, and the ``...`` is literal.  The ``<min>``
 version must be at least ``2.4`` and at most the running version of CMake.
@@ -80,7 +83,7 @@ CMake Policy Stack
 ^^^^^^^^^^^^^^^^^^
 
 CMake keeps policy settings on a stack, so changes made by the
-cmake_policy command affect only the top of the stack.  A new entry on
+``cmake_policy`` command affect only the top of the stack.  A new entry on
 the policy stack is managed automatically for each subdirectory to
 protect its parents and siblings.  CMake also manages a new entry for
 scripts loaded by :command:`include` and :command:`find_package` commands

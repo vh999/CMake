@@ -1,7 +1,6 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmPathLabel_h
-#define cmPathLabel_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
@@ -17,7 +16,7 @@
 class cmPathLabel
 {
 public:
-  cmPathLabel(const std::string& label);
+  cmPathLabel(std::string label);
 
   // The comparison operators are only for quick sorting and searching and
   // in no way imply any lexicographical order of the label
@@ -33,5 +32,3 @@ protected:
   std::string Label;
   unsigned int Hash;
 };
-
-#endif

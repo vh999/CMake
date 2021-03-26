@@ -9,6 +9,10 @@ foreach(arg
 endforeach()
 
 function(run_cmake test)
+  if(DEFINED ENV{RunCMake_TEST_FILTER} AND NOT test MATCHES "$ENV{RunCMake_TEST_FILTER}")
+    return()
+  endif()
+
   set(top_src "${RunCMake_SOURCE_DIR}")
   set(top_bin "${RunCMake_BINARY_DIR}")
   if(EXISTS ${top_src}/${test}-result.txt)
@@ -17,9 +21,19 @@ function(run_cmake test)
   else()
     set(expect_result 0)
   endif()
+
+  string(TOLOWER ${CMAKE_HOST_SYSTEM_NAME} platform_name)
+  if(platform_name MATCHES cygwin)
+    #remove all additional bits from cygwin name
+    set(platform_name cygwin)
+  endif()
+
   foreach(o out err)
     if(RunCMake-std${o}-file AND EXISTS ${top_src}/${RunCMake-std${o}-file})
       file(READ ${top_src}/${RunCMake-std${o}-file} expect_std${o})
+      string(REGEX REPLACE "\n+$" "" expect_std${o} "${expect_std${o}}")
+    elseif(EXISTS ${top_src}/${test}-std${o}-${platform_name}.txt)
+      file(READ ${top_src}/${test}-std${o}-${platform_name}.txt expect_std${o})
       string(REGEX REPLACE "\n+$" "" expect_std${o} "${expect_std${o}}")
     elseif(EXISTS ${top_src}/${test}-std${o}.txt)
       file(READ ${top_src}/${test}-std${o}.txt expect_std${o})
@@ -45,14 +59,10 @@ function(run_cmake test)
     file(REMOVE_RECURSE "${RunCMake_TEST_BINARY_DIR}")
   endif()
   file(MAKE_DIRECTORY "${RunCMake_TEST_BINARY_DIR}")
-  if(NOT DEFINED RunCMake_TEST_OPTIONS)
-    set(RunCMake_TEST_OPTIONS "")
-  endif()
-  if(APPLE)
-    list(APPEND RunCMake_TEST_OPTIONS -DCMAKE_POLICY_DEFAULT_CMP0025=NEW)
-  endif()
-  if(RunCMake_MAKE_PROGRAM)
-    list(APPEND RunCMake_TEST_OPTIONS "-DCMAKE_MAKE_PROGRAM=${RunCMake_MAKE_PROGRAM}")
+  if(RunCMake-prep-file AND EXISTS ${top_src}/${RunCMake-prep-file})
+    include(${top_src}/${RunCMake-prep-file})
+  else()
+    include(${top_src}/${test}-prep.cmake OPTIONAL)
   endif()
   if(RunCMake_TEST_OUTPUT_MERGE)
     set(actual_stderr_var actual_stdout)
@@ -72,45 +82,61 @@ function(run_cmake test)
   else()
     set(maybe_input_file "")
   endif()
-  if(RunCMake_TEST_COMMAND)
-    execute_process(
-      COMMAND ${RunCMake_TEST_COMMAND}
-      WORKING_DIRECTORY "${RunCMake_TEST_BINARY_DIR}"
-      OUTPUT_VARIABLE actual_stdout
-      ERROR_VARIABLE ${actual_stderr_var}
-      RESULT_VARIABLE actual_result
-      ENCODING UTF8
-      ${maybe_timeout}
-      ${maybe_input_file}
+  if(NOT RunCMake_TEST_COMMAND)
+    if(NOT DEFINED RunCMake_TEST_OPTIONS)
+      set(RunCMake_TEST_OPTIONS "")
+    endif()
+    if(APPLE)
+      list(APPEND RunCMake_TEST_OPTIONS -DCMAKE_POLICY_DEFAULT_CMP0025=NEW)
+    endif()
+    if(RunCMake_MAKE_PROGRAM)
+      list(APPEND RunCMake_TEST_OPTIONS "-DCMAKE_MAKE_PROGRAM=${RunCMake_MAKE_PROGRAM}")
+    endif()
+    set(RunCMake_TEST_COMMAND ${CMAKE_COMMAND})
+    if(NOT RunCMake_TEST_NO_SOURCE_DIR)
+      list(APPEND RunCMake_TEST_COMMAND "${RunCMake_TEST_SOURCE_DIR}")
+    endif()
+    list(APPEND RunCMake_TEST_COMMAND -G "${RunCMake_GENERATOR}")
+    if(RunCMake_GENERATOR_PLATFORM)
+      list(APPEND RunCMake_TEST_COMMAND -A "${RunCMake_GENERATOR_PLATFORM}")
+    endif()
+    if(RunCMake_GENERATOR_TOOLSET)
+      list(APPEND RunCMake_TEST_COMMAND -T "${RunCMake_GENERATOR_TOOLSET}")
+    endif()
+    if(RunCMake_GENERATOR_INSTANCE)
+      list(APPEND RunCMake_TEST_COMMAND "-DCMAKE_GENERATOR_INSTANCE=${RunCMake_GENERATOR_INSTANCE}")
+    endif()
+    list(APPEND RunCMake_TEST_COMMAND
+      -DRunCMake_TEST=${test}
+      --no-warn-unused-cli
       )
   else()
-    if(RunCMake_GENERATOR_INSTANCE)
-      set(_D_CMAKE_GENERATOR_INSTANCE "-DCMAKE_GENERATOR_INSTANCE=${RunCMake_GENERATOR_INSTANCE}")
-    else()
-      set(_D_CMAKE_GENERATOR_INSTANCE "")
-    endif()
-    execute_process(
-      COMMAND ${CMAKE_COMMAND} "${RunCMake_TEST_SOURCE_DIR}"
-                -G "${RunCMake_GENERATOR}"
-                -A "${RunCMake_GENERATOR_PLATFORM}"
-                -T "${RunCMake_GENERATOR_TOOLSET}"
-                ${_D_CMAKE_GENERATOR_INSTANCE}
-                -DRunCMake_TEST=${test}
-                --no-warn-unused-cli
-                ${RunCMake_TEST_OPTIONS}
-      WORKING_DIRECTORY "${RunCMake_TEST_BINARY_DIR}"
-      OUTPUT_VARIABLE actual_stdout
-      ERROR_VARIABLE ${actual_stderr_var}
-      RESULT_VARIABLE actual_result
-      ENCODING UTF8
-      ${maybe_timeout}
-      ${maybe_input_file}
-      )
+    set(RunCMake_TEST_OPTIONS "")
   endif()
+  if(NOT RunCMake_TEST_COMMAND_WORKING_DIRECTORY)
+    set(RunCMake_TEST_COMMAND_WORKING_DIRECTORY "${RunCMake_TEST_BINARY_DIR}")
+  endif()
+  execute_process(
+    COMMAND ${RunCMake_TEST_COMMAND}
+            ${RunCMake_TEST_OPTIONS}
+    WORKING_DIRECTORY "${RunCMake_TEST_COMMAND_WORKING_DIRECTORY}"
+    OUTPUT_VARIABLE actual_stdout
+    ERROR_VARIABLE ${actual_stderr_var}
+    RESULT_VARIABLE actual_result
+    ENCODING UTF8
+    ${maybe_timeout}
+    ${maybe_input_file}
+    )
   set(msg "")
   if(NOT "${actual_result}" MATCHES "${expect_result}")
     string(APPEND msg "Result is [${actual_result}], not [${expect_result}].\n")
   endif()
+
+  # Special case: remove ninja no-op line from stderr, but not stdout.
+  # Test cases that look for it should use RunCMake_TEST_OUTPUT_MERGE.
+  string(REGEX REPLACE "(^|\r?\n)ninja: no work to do\\.\r?\n" "\\1" actual_stderr "${actual_stderr}")
+
+  # Remove incidental content from both stdout and stderr.
   string(CONCAT ignore_line_regex
     "(^|\n)((==[0-9]+=="
     "|BullseyeCoverage"
@@ -118,10 +144,17 @@ function(run_cmake test)
     "|clang[^:]*: warning: the object size sanitizer has no effect at -O0, but is explicitly enabled:"
     "|Error kstat returned"
     "|Hit xcodebuild bug"
+
+    "|LICENSE WARNING:"
+    "|Your license to use PGI[^\n]*expired"
+    "|Please obtain a new version at"
+    "|contact PGI Sales at"
+
+    "|[^\n]*install_name_tool: warning: changes being made to the file will invalidate the code signature in:"
     "|[^\n]*xcodebuild[^\n]*warning: file type[^\n]*is based on missing file type"
-    "|ld: 0711-224 WARNING: Duplicate symbol: .__init_aix_libgcc_cxa_atexit"
-    "|ld: 0711-345 Use the -bloadmap or -bnoquiet option to obtain more information"
+    "|[^\n]*objc[^\n]*: Class AMSupportURL[^\n]* One of the two will be used. Which one is undefined."
     "|[^\n]*is a member of multiple groups"
+    "|[^\n]*offset in archive not a multiple of 8"
     "|[^\n]*from Time Machine by path"
     "|[^\n]*Bullseye Testing Technology"
     ")[^\n]*\n)+"
@@ -149,14 +182,18 @@ function(run_cmake test)
   if(RunCMake_TEST_FAILED)
     set(msg "${RunCMake_TEST_FAILED}\n${msg}")
   endif()
-  if(msg AND RunCMake_TEST_COMMAND)
+  if(msg)
     string(REPLACE ";" "\" \"" command "\"${RunCMake_TEST_COMMAND}\"")
+    if(RunCMake_TEST_OPTIONS)
+      string(REPLACE ";" "\" \"" options "\"${RunCMake_TEST_OPTIONS}\"")
+      string(APPEND command " ${options}")
+    endif()
     string(APPEND msg "Command was:\n command> ${command}\n")
   endif()
   if(msg)
     string(REGEX REPLACE "\n" "\n actual-out> " actual_out " actual-out> ${actual_stdout}")
     string(REGEX REPLACE "\n" "\n actual-err> " actual_err " actual-err> ${actual_stderr}")
-    message(SEND_ERROR "${test} - FAILED:\n"
+    message(SEND_ERROR "${test}${RunCMake_TEST_VARIANT_DESCRIPTION} - FAILED:\n"
       "${msg}"
       "${expect_out}"
       "Actual stdout:\n${actual_out}\n"
@@ -164,13 +201,46 @@ function(run_cmake test)
       "Actual stderr:\n${actual_err}\n"
       )
   else()
-    message(STATUS "${test} - PASSED")
+    message(STATUS "${test}${RunCMake_TEST_VARIANT_DESCRIPTION} - PASSED")
   endif()
 endfunction()
 
 function(run_cmake_command test)
   set(RunCMake_TEST_COMMAND "${ARGN}")
   run_cmake(${test})
+endfunction()
+
+function(run_cmake_script test)
+  set(RunCMake_TEST_COMMAND ${CMAKE_COMMAND} ${ARGN} -P ${RunCMake_SOURCE_DIR}/${test}.cmake)
+  run_cmake(${test})
+endfunction()
+
+function(run_cmake_with_options test)
+  set(RunCMake_TEST_OPTIONS "${ARGN}")
+  run_cmake(${test})
+endfunction()
+
+function(ensure_files_match expected_file actual_file)
+  if(NOT EXISTS "${expected_file}")
+    message(FATAL_ERROR "Expected file does not exist:\n  ${expected_file}")
+  endif()
+  if(NOT EXISTS "${actual_file}")
+    message(FATAL_ERROR "Actual file does not exist:\n  ${actual_file}")
+  endif()
+  file(READ "${expected_file}" expected_file_content)
+  file(READ "${actual_file}" actual_file_content)
+  if(NOT "${expected_file_content}" STREQUAL "${actual_file_content}")
+    message(FATAL_ERROR "Actual file content does not match expected:\n
+    \n
+      expected file: ${expected_file}\n
+      expected content:\n
+      ${expected_file_content}\n
+    \n
+      actual file: ${actual_file}\n
+      actual content:\n
+      ${actual_file_content}\n
+    ")
+  endif()
 endfunction()
 
 # Protect RunCMake tests from calling environment.

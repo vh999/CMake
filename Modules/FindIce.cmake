@@ -5,6 +5,8 @@
 FindIce
 -------
 
+.. versionadded:: 3.1
+
 Find the ZeroC Internet Communication Engine (ICE) programs,
 libraries and datafiles.
 
@@ -20,6 +22,15 @@ Ice 3.7 and later also include C++11-specific components:
 ``IceStorm++11``
 
 Note that the set of supported components is Ice version-specific.
+
+.. versionadded:: 3.4
+  Imported targets for components and most ``EXECUTABLE`` variables.
+
+.. versionadded:: 3.7
+  Debug and Release variants are found separately.
+
+.. versionadded:: 3.10
+  Ice 3.7 support, including new components, programs and the Nuget package.
 
 This module reports information about the Ice installation in
 several variables.  General variables::
@@ -40,6 +51,7 @@ Where ``<C>`` is the name of an Ice component, for example
 
 Ice slice programs are reported in::
 
+  Ice_SLICE2CONFLUENCE_EXECUTABLE - path to slice2confluence executable
   Ice_SLICE2CPP_EXECUTABLE - path to slice2cpp executable
   Ice_SLICE2CS_EXECUTABLE - path to slice2cs executable
   Ice_SLICE2FREEZEJ_EXECUTABLE - path to slice2freezej executable
@@ -47,10 +59,14 @@ Ice slice programs are reported in::
   Ice_SLICE2HTML_EXECUTABLE - path to slice2html executable
   Ice_SLICE2JAVA_EXECUTABLE - path to slice2java executable
   Ice_SLICE2JS_EXECUTABLE - path to slice2js executable
+  Ice_SLICE2MATLAB_EXECUTABLE - path to slice2matlab executable
   Ice_SLICE2OBJC_EXECUTABLE - path to slice2objc executable
   Ice_SLICE2PHP_EXECUTABLE - path to slice2php executable
   Ice_SLICE2PY_EXECUTABLE - path to slice2py executable
   Ice_SLICE2RB_EXECUTABLE - path to slice2rb executable
+
+.. versionadded:: 3.14
+  Variables for ``slice2confluence`` and ``slice2matlab``.
 
 Ice programs are reported in::
 
@@ -185,6 +201,7 @@ Other variables one may set to control this module are::
       icestormmigrate)
 
   set(_Ice_slice_programs
+      slice2confluence
       slice2cpp
       slice2cs
       slice2freezej
@@ -192,6 +209,7 @@ Other variables one may set to control this module are::
       slice2html
       slice2java
       slice2js
+      slice2matlab
       slice2objc
       slice2php
       slice2py
@@ -255,7 +273,7 @@ function(_Ice_FIND)
   endif()
 
   unset(vcvers)
-  if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
+  if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC" OR "${CMAKE_CXX_SIMULATE_ID}" STREQUAL "MSVC")
     if(MSVC_TOOLSET_VERSION GREATER_EQUAL 141)
       set(vcvers "141;140")
     elseif(MSVC_TOOLSET_VERSION GREATER_EQUAL 100)
@@ -431,7 +449,7 @@ function(_Ice_FIND)
     set(component_library "${component}")
     unset(component_library_release_names)
     unset(component_library_debug_names)
-    if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
+    if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC" OR "${CMAKE_CXX_SIMULATE_ID}" STREQUAL "MSVC")
       string(REGEX MATCH ".+\\+\\+11$" component_library_cpp11 "${component_library}")
       if(component_library_cpp11)
         string(REGEX REPLACE "^(.+)(\\+\\+11)$" "\\1" component_library "${component_library}")

@@ -2,16 +2,11 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmGlobalVisualStudio14Generator.h"
 
-#include "cmAlgorithms.h"
+#include <cm/vector>
+
 #include "cmDocumentationEntry.h"
 #include "cmLocalVisualStudio10Generator.h"
 #include "cmMakefile.h"
-#include "cmVS140CLFlagTable.h"
-#include "cmVS140CSharpFlagTable.h"
-#include "cmVS140LinkFlagTable.h"
-#include "cmVS14LibFlagTable.h"
-#include "cmVS14MASMFlagTable.h"
-#include "cmVS14RCFlagTable.h"
 
 static const char vs14generatorName[] = "Visual Studio 14 2015";
 
@@ -34,27 +29,30 @@ class cmGlobalVisualStudio14Generator::Factory
   : public cmGlobalGeneratorFactory
 {
 public:
-  cmGlobalGenerator* CreateGlobalGenerator(const std::string& name,
-                                           cmake* cm) const override
+  std::unique_ptr<cmGlobalGenerator> CreateGlobalGenerator(
+    const std::string& name, bool allowArch, cmake* cm) const override
   {
     std::string genName;
     const char* p = cmVS14GenName(name, genName);
     if (!p) {
-      return 0;
+      return std::unique_ptr<cmGlobalGenerator>();
     }
     if (!*p) {
-      return new cmGlobalVisualStudio14Generator(cm, genName, "");
+      return std::unique_ptr<cmGlobalGenerator>(
+        new cmGlobalVisualStudio14Generator(cm, genName, ""));
     }
-    if (*p++ != ' ') {
-      return 0;
+    if (!allowArch || *p++ != ' ') {
+      return std::unique_ptr<cmGlobalGenerator>();
     }
     if (strcmp(p, "Win64") == 0) {
-      return new cmGlobalVisualStudio14Generator(cm, genName, "x64");
+      return std::unique_ptr<cmGlobalGenerator>(
+        new cmGlobalVisualStudio14Generator(cm, genName, "x64"));
     }
     if (strcmp(p, "ARM") == 0) {
-      return new cmGlobalVisualStudio14Generator(cm, genName, "ARM");
+      return std::unique_ptr<cmGlobalGenerator>(
+        new cmGlobalVisualStudio14Generator(cm, genName, "ARM"));
     }
-    return 0;
+    return std::unique_ptr<cmGlobalGenerator>();
   }
 
   void GetDocumentation(cmDocumentationEntry& entry) const override
@@ -64,25 +62,46 @@ public:
                   "Optional [arch] can be \"Win64\" or \"ARM\".";
   }
 
-  void GetGenerators(std::vector<std::string>& names) const override
+  std::vector<std::string> GetGeneratorNames() const override
   {
+    std::vector<std::string> names;
     names.push_back(vs14generatorName);
+    return names;
+  }
+
+  std::vector<std::string> GetGeneratorNamesWithPlatform() const override
+  {
+    std::vector<std::string> names;
     names.push_back(vs14generatorName + std::string(" ARM"));
     names.push_back(vs14generatorName + std::string(" Win64"));
+    return names;
   }
 
   bool SupportsToolset() const override { return true; }
   bool SupportsPlatform() const override { return true; }
+
+  std::vector<std::string> GetKnownPlatforms() const override
+  {
+    std::vector<std::string> platforms;
+    platforms.emplace_back("x64");
+    platforms.emplace_back("Win32");
+    platforms.emplace_back("ARM");
+    return platforms;
+  }
+
+  std::string GetDefaultPlatformName() const override { return "Win32"; }
 };
 
-cmGlobalGeneratorFactory* cmGlobalVisualStudio14Generator::NewFactory()
+std::unique_ptr<cmGlobalGeneratorFactory>
+cmGlobalVisualStudio14Generator::NewFactory()
 {
-  return new Factory;
+  return std::unique_ptr<cmGlobalGeneratorFactory>(new Factory);
 }
 
 cmGlobalVisualStudio14Generator::cmGlobalVisualStudio14Generator(
-  cmake* cm, const std::string& name, const std::string& platformName)
-  : cmGlobalVisualStudio12Generator(cm, name, platformName)
+  cmake* cm, const std::string& name,
+  std::string const& platformInGeneratorName)
+  : cmGlobalVisualStudio12Generator(cm, name, platformInGeneratorName)
 {
   std::string vc14Express;
   this->ExpressEdition = cmSystemTools::ReadRegistryValue(
@@ -90,12 +109,13 @@ cmGlobalVisualStudio14Generator::cmGlobalVisualStudio14Generator(
     "ProductDir",
     vc14Express, cmSystemTools::KeyWOW64_32);
   this->DefaultPlatformToolset = "v140";
-  this->DefaultClFlagTable = cmVS140CLFlagTable;
-  this->DefaultCSharpFlagTable = cmVS140CSharpFlagTable;
-  this->DefaultLibFlagTable = cmVS14LibFlagTable;
-  this->DefaultLinkFlagTable = cmVS140LinkFlagTable;
-  this->DefaultMasmFlagTable = cmVS14MASMFlagTable;
-  this->DefaultRcFlagTable = cmVS14RCFlagTable;
+  this->DefaultAndroidToolset = "Clang_3_8";
+  this->DefaultCLFlagTableName = "v140";
+  this->DefaultCSharpFlagTableName = "v140";
+  this->DefaultLibFlagTableName = "v14";
+  this->DefaultLinkFlagTableName = "v140";
+  this->DefaultMasmFlagTableName = "v14";
+  this->DefaultRCFlagTableName = "v14";
   this->Version = VS14;
 }
 
@@ -131,7 +151,7 @@ bool cmGlobalVisualStudio14Generator::InitializeWindowsStore(cmMakefile* mf)
         << "Desktop SDK as well as the Windows Store '" << this->SystemVersion
         << "' SDK. Please make sure that you have both installed";
     }
-    mf->IssueMessage(cmake::FATAL_ERROR, e.str());
+    mf->IssueMessage(MessageType::FATAL_ERROR, e.str());
     return false;
   }
   if (cmHasLiteralPrefix(this->SystemVersion, "10.0")) {
@@ -140,28 +160,41 @@ bool cmGlobalVisualStudio14Generator::InitializeWindowsStore(cmMakefile* mf)
   return true;
 }
 
+bool cmGlobalVisualStudio14Generator::InitializeAndroid(cmMakefile*)
+{
+  return true;
+}
+
 bool cmGlobalVisualStudio14Generator::SelectWindows10SDK(cmMakefile* mf,
                                                          bool required)
 {
   // Find the default version of the Windows 10 SDK.
-  this->WindowsTargetPlatformVersion = this->GetWindows10SDKVersion();
-  if (required && this->WindowsTargetPlatformVersion.empty()) {
+  std::string const version = this->GetWindows10SDKVersion(mf);
+
+  if (required && version.empty()) {
     std::ostringstream e;
     e << "Could not find an appropriate version of the Windows 10 SDK"
       << " installed on this machine";
-    mf->IssueMessage(cmake::FATAL_ERROR, e.str());
+    mf->IssueMessage(MessageType::FATAL_ERROR, e.str());
     return false;
   }
+  this->SetWindowsTargetPlatformVersion(version, mf);
+  return true;
+}
+
+void cmGlobalVisualStudio14Generator::SetWindowsTargetPlatformVersion(
+  std::string const& version, cmMakefile* mf)
+{
+  this->WindowsTargetPlatformVersion = version;
   if (!cmSystemTools::VersionCompareEqual(this->WindowsTargetPlatformVersion,
                                           this->SystemVersion)) {
     std::ostringstream e;
     e << "Selecting Windows SDK version " << this->WindowsTargetPlatformVersion
       << " to target Windows " << this->SystemVersion << ".";
-    mf->DisplayStatus(e.str().c_str(), -1);
+    mf->DisplayStatus(e.str(), -1);
   }
   mf->AddDefinition("CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION",
-                    this->WindowsTargetPlatformVersion.c_str());
-  return true;
+                    this->WindowsTargetPlatformVersion);
 }
 
 bool cmGlobalVisualStudio14Generator::SelectWindowsStoreToolset(
@@ -178,17 +211,6 @@ bool cmGlobalVisualStudio14Generator::SelectWindowsStoreToolset(
   }
   return this->cmGlobalVisualStudio12Generator::SelectWindowsStoreToolset(
     toolset);
-}
-
-void cmGlobalVisualStudio14Generator::WriteSLNHeader(std::ostream& fout)
-{
-  // Visual Studio 14 writes .sln format 12.00
-  fout << "Microsoft Visual Studio Solution File, Format Version 12.00\n";
-  if (this->ExpressEdition) {
-    fout << "# Visual Studio Express 14 for Windows Desktop\n";
-  } else {
-    fout << "# Visual Studio 14\n";
-  }
 }
 
 bool cmGlobalVisualStudio14Generator::IsWindowsDesktopToolsetInstalled() const
@@ -212,7 +234,30 @@ bool cmGlobalVisualStudio14Generator::IsWindowsStoreToolsetInstalled() const
                                           cmSystemTools::KeyWOW64_32);
 }
 
-std::string cmGlobalVisualStudio14Generator::GetWindows10SDKMaxVersion() const
+std::string cmGlobalVisualStudio14Generator::GetWindows10SDKMaxVersion(
+  cmMakefile* mf) const
+{
+  // if the given value is set, it can either be OFF/FALSE or a valid SDK
+  // string
+  if (cmProp value = mf->GetDefinition(
+        "CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION_MAXIMUM")) {
+
+    // If the value is some off/false value, then there is NO maximum set.
+    if (cmIsOff(value)) {
+      return std::string();
+    }
+    // If the value is something else, trust that it is a valid SDK value.
+    else if (value) {
+      return *value;
+    }
+    // If value is an invalid pointer, leave result unchanged.
+  }
+
+  return this->GetWindows10SDKMaxVersionDefault(mf);
+}
+
+std::string cmGlobalVisualStudio14Generator::GetWindows10SDKMaxVersionDefault(
+  cmMakefile*) const
 {
   // The last Windows 10 SDK version that VS 2015 can target is 10.0.14393.0.
   //
@@ -246,7 +291,8 @@ public:
 };
 #endif
 
-std::string cmGlobalVisualStudio14Generator::GetWindows10SDKVersion()
+std::string cmGlobalVisualStudio14Generator::GetWindows10SDKVersion(
+  cmMakefile* mf)
 {
 #if defined(_WIN32) && !defined(__CYGWIN__)
   std::vector<std::string> win10Roots;
@@ -289,17 +335,19 @@ std::string cmGlobalVisualStudio14Generator::GetWindows10SDKVersion()
 
   // Skip SDKs that do not contain <um/windows.h> because that indicates that
   // only the UCRT MSIs were installed for them.
-  cmEraseIf(sdks, NoWindowsH());
+  cm::erase_if(sdks, NoWindowsH());
 
   // Only use the filename, which will be the SDK version.
   for (std::string& i : sdks) {
     i = cmSystemTools::GetFilenameName(i);
   }
 
-  // Skip SDKs that cannot be used with our toolset.
-  std::string maxVersion = this->GetWindows10SDKMaxVersion();
+  // Skip SDKs that cannot be used with our toolset, unless the user does not
+  // want to limit the highest supported SDK according to the Microsoft
+  // documentation.
+  std::string maxVersion = this->GetWindows10SDKMaxVersion(mf);
   if (!maxVersion.empty()) {
-    cmEraseIf(sdks, WindowsSDKTooRecent(maxVersion));
+    cm::erase_if(sdks, WindowsSDKTooRecent(maxVersion));
   }
 
   // Sort the results to make sure we select the most recent one.

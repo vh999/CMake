@@ -4,9 +4,10 @@
 #include <cmConfigure.h> // IWYU pragma: keep
 
 #include <iostream>
-#include <stddef.h>
 #include <string>
 #include <vector>
+
+#include <stddef.h>
 
 #include "cmSystemTools.h"
 
@@ -16,11 +17,13 @@
   failed = 1
 
 #define cmAssert(exp, m)                                                      \
-  if ((exp)) {                                                                \
-    cmPassed(m);                                                              \
-  } else {                                                                    \
-    cmFailed(m);                                                              \
-  }
+  do {                                                                        \
+    if ((exp)) {                                                              \
+      cmPassed(m);                                                            \
+    } else {                                                                  \
+      cmFailed(m);                                                            \
+    }                                                                         \
+  } while (false)
 
 int testSystemTools(int /*unused*/, char* /*unused*/ [])
 {
@@ -91,5 +94,6 @@ int testSystemTools(int /*unused*/, char* /*unused*/ [])
   if (!failed) {
     cmPassed("cmSystemTools::strverscmp working");
   }
+
   return failed;
 }

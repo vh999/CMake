@@ -2,15 +2,17 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmCTestVC.h"
 
-#include "cmCTest.h"
-#include "cmSystemTools.h"
-#include "cmXMLWriter.h"
+#include <cstdio>
+#include <ctime>
+#include <sstream>
+#include <vector>
 
 #include "cmsys/Process.h"
-#include <sstream>
-#include <stdio.h>
-#include <time.h>
-#include <vector>
+
+#include "cmCTest.h"
+#include "cmStringAlgorithms.h"
+#include "cmSystemTools.h"
+#include "cmXMLWriter.h"
 
 cmCTestVC::cmCTestVC(cmCTest* ct, std::ostream& log)
   : CTest(ct)
@@ -24,9 +26,7 @@ cmCTestVC::cmCTestVC(cmCTest* ct, std::ostream& log)
   this->Unknown.Rev = "Unknown";
 }
 
-cmCTestVC::~cmCTestVC()
-{
-}
+cmCTestVC::~cmCTestVC() = default;
 
 void cmCTestVC::SetCommandLineTool(std::string const& tool)
 {
@@ -38,7 +38,7 @@ void cmCTestVC::SetSourceDirectory(std::string const& dir)
   this->SourceDirectory = dir;
 }
 
-bool cmCTestVC::InitialCheckout(const char* command)
+bool cmCTestVC::InitialCheckout(const std::string& command)
 {
   cmCTestLog(this->CTest, HANDLER_OUTPUT,
              "   First perform the initial checkout: " << command << "\n");
@@ -143,10 +143,18 @@ void cmCTestVC::CleanupImpl()
 bool cmCTestVC::Update()
 {
   bool result = true;
+
+  // Use the explicitly specified version.
+  std::string versionOverride =
+    this->CTest->GetCTestConfiguration("UpdateVersionOverride");
+  if (!versionOverride.empty()) {
+    this->SetNewRevision(versionOverride);
+    return true;
+  }
+
   // if update version only is on then do not actually update,
   // just note the current version and finish
-  if (!cmSystemTools::IsOn(
-        this->CTest->GetCTestConfiguration("UpdateVersionOnly"))) {
+  if (!cmIsOn(this->CTest->GetCTestConfiguration("UpdateVersionOnly"))) {
     result = this->NoteOldRevision() && result;
     this->Log << "--- Begin Update ---\n";
     result = this->UpdateImpl() && result;
@@ -166,6 +174,11 @@ bool cmCTestVC::NoteNewRevision()
 {
   // We do nothing by default.
   return true;
+}
+
+void cmCTestVC::SetNewRevision(std::string const& /*unused*/)
+{
+  // We do nothing by default.
 }
 
 bool cmCTestVC::UpdateImpl()

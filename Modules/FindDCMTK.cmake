@@ -5,7 +5,7 @@
 FindDCMTK
 ---------
 
-Find DCMTK libraries and applications
+Find DICOM ToolKit (DCMTK) libraries and applications
 
 The module defines the following variables::
 
@@ -102,7 +102,7 @@ set(_SAVED_DCMTK_DIR ${DCMTK_DIR})
 # Step1: Attempt to find a version of DCMTK providing a DCMTKConfig.cmake file.
 #
 if(NOT DCMTK_FIND_QUIETLY)
-  message(STATUS "Trying to find DCMTK expecting DCMTKConfig.cmake")
+  message(CHECK_START "Trying to find DCMTK expecting DCMTKConfig.cmake")
 endif()
 find_package(DCMTK QUIET NO_MODULE)
 if(DCMTK_FOUND
@@ -110,12 +110,12 @@ if(DCMTK_FOUND
     AND NOT "x" STREQUAL "x${DCMTK_INCLUDE_DIRS}")
 
   if(NOT DCMTK_FIND_QUIETLY)
-    message(STATUS "Trying to find DCMTK expecting DCMTKConfig.cmake - ok")
+    message(CHECK_PASS "ok")
   endif()
   return()
 else()
   if(NOT DCMTK_FIND_QUIETLY)
-    message(STATUS "Trying to find DCMTK expecting DCMTKConfig.cmake - failed")
+    message(CHECK_FAIL "failed")
   endif()
 endif()
 
@@ -200,7 +200,6 @@ if(DCMTK_oflog_LIBRARY_RELEASE OR DCMTK_oflog_LIBRARY_DEBUG)
   # Hack - Not having a DCMTKConfig.cmake file to read the settings from, we will attempt to
   # find the library in all cases.
   # Ideally, pthread library should be discovered only if DCMTK_WITH_THREADS is enabled.
-  set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
   find_package(Threads)
 endif()
 

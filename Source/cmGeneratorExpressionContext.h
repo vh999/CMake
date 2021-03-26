@@ -1,25 +1,24 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmGeneratorExpressionContext_h
-#define cmGeneratorExpressionContext_h
-
-#include "cmListFileCache.h"
+#pragma once
 
 #include <map>
 #include <set>
 #include <string>
+
+#include "cmListFileCache.h"
 
 class cmGeneratorTarget;
 class cmLocalGenerator;
 
 struct cmGeneratorExpressionContext
 {
-  cmGeneratorExpressionContext(cmLocalGenerator* lg, std::string const& config,
+  cmGeneratorExpressionContext(cmLocalGenerator* lg, std::string config,
                                bool quiet, const cmGeneratorTarget* headTarget,
                                cmGeneratorTarget const* currentTarget,
                                bool evaluateForBuildsystem,
-                               cmListFileBacktrace const& backtrace,
-                               std::string const& language);
+                               cmListFileBacktrace backtrace,
+                               std::string language);
 
   cmListFileBacktrace Backtrace;
   std::set<cmGeneratorTarget*> DependTargets;
@@ -40,7 +39,6 @@ struct cmGeneratorExpressionContext
   bool HadError;
   bool HadContextSensitiveCondition;
   bool HadHeadSensitiveCondition;
+  bool HadLinkLanguageSensitiveCondition;
   bool EvaluateForBuildsystem;
 };
-
-#endif

@@ -2,27 +2,30 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmRST.h"
 
+#include <algorithm>
+#include <cctype>
+#include <cstddef>
+#include <iterator>
+#include <utility>
+
+#include "cmsys/FStream.hxx"
+
 #include "cmAlgorithms.h"
+#include "cmRange.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
 #include "cmVersion.h"
 
-#include "cmsys/FStream.hxx"
-#include <algorithm>
-#include <ctype.h>
-#include <iterator>
-#include <stddef.h>
-#include <utility>
-
-cmRST::cmRST(std::ostream& os, std::string const& docroot)
+cmRST::cmRST(std::ostream& os, std::string docroot)
   : OS(os)
-  , DocRoot(docroot)
+  , DocRoot(std::move(docroot))
   , IncludeDepth(0)
   , OutputLinePending(false)
   , LastLineEndedInColonColon(false)
   , Markup(MarkupNone)
   , Directive(DirectiveNone)
   , CMakeDirective("^.. (cmake:)?("
-                   "command|variable"
+                   "command|envvar|genex|variable"
                    ")::[ \t]+([^ \t\n]+)$")
   , CMakeModuleDirective("^.. cmake-module::[ \t]+([^ \t\n]+)$")
   , ParsedLiteralDirective("^.. parsed-literal::[ \t]*(.*)$")
@@ -32,9 +35,10 @@ cmRST::cmRST(std::ostream& os, std::string const& docroot)
   , TocTreeDirective("^.. toctree::[ \t]*(.*)$")
   , ProductionListDirective("^.. productionlist::[ \t]*(.*)$")
   , NoteDirective("^.. note::[ \t]*(.*)$")
-  , ModuleRST("^#\\[(=*)\\[\\.rst:$")
+  , ModuleRST(R"(^#\[(=*)\[\.rst:$)")
   , CMakeRole("(:cmake)?:("
-              "command|cpack_gen|generator|variable|envvar|module|policy|"
+              "command|cpack_gen|generator|genex|"
+              "variable|envvar|module|policy|"
               "prop_cache|prop_dir|prop_gbl|prop_inst|prop_sf|"
               "prop_test|prop_tgt|"
               "manual"
@@ -86,7 +90,8 @@ void cmRST::ProcessModule(std::istream& is)
         this->ProcessLine(line);
       } else {
         if (line[0] != '#') {
-          this->ProcessLine(line.substr(0, pos));
+          line.resize(pos);
+          this->ProcessLine(line);
         }
         rst.clear();
         this->Reset();
@@ -99,8 +104,9 @@ void cmRST::ProcessModule(std::istream& is)
           this->ProcessLine("");
           continue;
         }
-        if (line.substr(0, 2) == "# ") {
-          this->ProcessLine(line.substr(2));
+        if (cmHasLiteralPrefix(line, "# ")) {
+          line.erase(0, 2);
+          this->ProcessLine(line);
           continue;
         }
         rst.clear();
@@ -161,6 +167,8 @@ void cmRST::ProcessLine(std::string const& line)
     this->Markup =
       (line.find_first_not_of(" \t", 2) == std::string::npos ? MarkupEmpty
                                                              : MarkupNormal);
+    // XXX(clang-tidy): https://bugs.llvm.org/show_bug.cgi?id=44165
+    // NOLINTNEXTLINE(bugprone-branch-clone)
     if (this->CMakeDirective.find(line)) {
       // Output cmake domain directives and their content normally.
       this->NormalLine(line);
@@ -178,7 +186,7 @@ void cmRST::ProcessLine(std::string const& line)
       // Record the literal lines to output after whole block.
       // Ignore the language spec and record the opening line as blank.
       this->Directive = DirectiveCodeBlock;
-      this->MarkupLines.push_back("");
+      this->MarkupLines.emplace_back();
     } else if (this->ReplaceDirective.find(line)) {
       // Record the replace directive content.
       this->Directive = DirectiveReplace;
@@ -221,7 +229,7 @@ void cmRST::ProcessLine(std::string const& line)
     // Record the literal lines to output after whole block.
     this->Markup = MarkupNormal;
     this->Directive = DirectiveLiteralBlock;
-    this->MarkupLines.push_back("");
+    this->MarkupLines.emplace_back();
     this->OutputLine("", false);
   }
   // Print non-markup lines.
@@ -318,8 +326,7 @@ std::string cmRST::ReplaceSubstitutions(std::string const& line)
     std::string::size_type start = this->Substitution.start(2);
     std::string::size_type end = this->Substitution.end(2);
     std::string substitute = this->Substitution.match(3);
-    std::map<std::string, std::string>::iterator replace =
-      this->Replace.find(substitute);
+    auto replace = this->Replace.find(substitute);
     if (replace != this->Replace.end()) {
       std::pair<std::set<std::string>::iterator, bool> replaced =
         this->Replaced.insert(substitute);
@@ -340,7 +347,7 @@ void cmRST::OutputMarkupLines(bool inlineMarkup)
 {
   for (auto line : this->MarkupLines) {
     if (!line.empty()) {
-      line = " " + line;
+      line = cmStrCat(" ", line);
     }
     this->OutputLine(line, inlineMarkup);
   }
@@ -449,14 +456,20 @@ void cmRST::UnindentLines(std::vector<std::string>& lines)
     }
   }
 
-  std::vector<std::string>::const_iterator it = lines.begin();
+  auto it = lines.cbegin();
   size_t leadingEmpty = std::distance(it, cmFindNot(lines, std::string()));
 
-  std::vector<std::string>::const_reverse_iterator rit = lines.rbegin();
+  auto rit = lines.crbegin();
   size_t trailingEmpty =
     std::distance(rit, cmFindNot(cmReverseRange(lines), std::string()));
 
-  std::vector<std::string>::iterator contentEnd = cmRotate(
-    lines.begin(), lines.begin() + leadingEmpty, lines.end() - trailingEmpty);
+  if ((leadingEmpty + trailingEmpty) >= lines.size()) {
+    // All lines are empty.  The markup block is empty.  Leave only one.
+    lines.resize(1);
+    return;
+  }
+
+  auto contentEnd = cmRotate(lines.begin(), lines.begin() + leadingEmpty,
+                             lines.end() - trailingEmpty);
   lines.erase(contentEnd, lines.end());
 }

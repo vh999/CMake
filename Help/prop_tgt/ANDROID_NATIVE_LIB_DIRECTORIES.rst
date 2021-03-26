@@ -1,8 +1,10 @@
 ANDROID_NATIVE_LIB_DIRECTORIES
 ------------------------------
 
-Set the Android property that specifies directories to search for the
-.so libraries.
+.. versionadded:: 3.4
+
+Set the Android property that specifies directories to search for the ``.so``
+libraries.
 
 This a string property that contains the directory paths separated
 by semicolons.

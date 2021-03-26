@@ -9,7 +9,7 @@ Provides a macro to check if a header file can be included in ``C``.
 
 .. command:: CHECK_INCLUDE_FILE
 
-  ::
+  .. code-block:: cmake
 
     CHECK_INCLUDE_FILE(<include> <variable> [<flags>])
 
@@ -22,15 +22,21 @@ The following variables may be set before calling this macro to modify
 the way the check is run:
 
 ``CMAKE_REQUIRED_FLAGS``
-  string of compile command line flags
+  string of compile command line flags.
 ``CMAKE_REQUIRED_DEFINITIONS``
-  list of macros to define (-DFOO=bar)
+  a :ref:`;-list <CMake Language Lists>` of macros to define (-DFOO=bar).
 ``CMAKE_REQUIRED_INCLUDES``
-  list of include directories
+  a :ref:`;-list <CMake Language Lists>` of header search paths to pass to
+  the compiler.
+``CMAKE_REQUIRED_LINK_OPTIONS``
+  .. versionadded:: 3.14
+    a :ref:`;-list <CMake Language Lists>` of options to add to the link command.
 ``CMAKE_REQUIRED_LIBRARIES``
-  A list of libraries to link.  See policy :policy:`CMP0075`.
+  a :ref:`;-list <CMake Language Lists>` of libraries to add to the link
+  command. See policy :policy:`CMP0075`.
 ``CMAKE_REQUIRED_QUIET``
-  execute quietly without messages
+  .. versionadded:: 3.1
+    execute quietly without messages.
 
 See the :module:`CheckIncludeFiles` module to check for multiple headers
 at once.  See the :module:`CheckIncludeFileCXX` module to check for headers
@@ -51,11 +57,16 @@ macro(CHECK_INCLUDE_FILE INCLUDE VARIABLE)
     configure_file(${CMAKE_ROOT}/Modules/CheckIncludeFile.c.in
       ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeTmp/CheckIncludeFile.c)
     if(NOT CMAKE_REQUIRED_QUIET)
-      message(STATUS "Looking for ${INCLUDE}")
+      message(CHECK_START "Looking for ${INCLUDE}")
     endif()
     if(${ARGC} EQUAL 3)
       set(CMAKE_C_FLAGS_SAVE ${CMAKE_C_FLAGS})
       string(APPEND CMAKE_C_FLAGS " ${ARGV2}")
+    endif()
+
+    set(_CIF_LINK_OPTIONS)
+    if(CMAKE_REQUIRED_LINK_OPTIONS)
+      set(_CIF_LINK_OPTIONS LINK_OPTIONS ${CMAKE_REQUIRED_LINK_OPTIONS})
     endif()
 
     set(_CIF_LINK_LIBRARIES "")
@@ -85,11 +96,13 @@ macro(CHECK_INCLUDE_FILE INCLUDE VARIABLE)
       ${CMAKE_BINARY_DIR}
       ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeTmp/CheckIncludeFile.c
       COMPILE_DEFINITIONS ${CMAKE_REQUIRED_DEFINITIONS}
+      ${_CIF_LINK_OPTIONS}
       ${_CIF_LINK_LIBRARIES}
       CMAKE_FLAGS
       -DCOMPILE_DEFINITIONS:STRING=${MACRO_CHECK_INCLUDE_FILE_FLAGS}
       "${CHECK_INCLUDE_FILE_C_INCLUDE_DIRS}"
       OUTPUT_VARIABLE OUTPUT)
+    unset(_CIF_LINK_OPTIONS)
     unset(_CIF_LINK_LIBRARIES)
 
     if(${ARGC} EQUAL 3)
@@ -98,7 +111,7 @@ macro(CHECK_INCLUDE_FILE INCLUDE VARIABLE)
 
     if(${VARIABLE})
       if(NOT CMAKE_REQUIRED_QUIET)
-        message(STATUS "Looking for ${INCLUDE} - found")
+        message(CHECK_PASS "found")
       endif()
       set(${VARIABLE} 1 CACHE INTERNAL "Have include ${INCLUDE}")
       file(APPEND ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeOutput.log
@@ -107,7 +120,7 @@ macro(CHECK_INCLUDE_FILE INCLUDE VARIABLE)
         "${OUTPUT}\n\n")
     else()
       if(NOT CMAKE_REQUIRED_QUIET)
-        message(STATUS "Looking for ${INCLUDE} - not found")
+        message(CHECK_FAIL "not found")
       endif()
       set(${VARIABLE} "" CACHE INTERNAL "Have include ${INCLUDE}")
       file(APPEND ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeError.log

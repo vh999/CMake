@@ -54,7 +54,7 @@ unspecified.
   export(PACKAGE <PackageName>)
 
 Store the current build directory in the CMake user package registry
-for package ``<PackageName>``.  The find_package command may consider the
+for package ``<PackageName>``.  The :command:`find_package` command may consider the
 directory while searching for package ``<PackageName>``.  This helps dependent
 projects find and use a package from the current project's build tree
 without help from the user.  Note that the entry in the package
@@ -62,12 +62,24 @@ registry that this command creates works only in conjunction with a
 package configuration file (``<PackageName>Config.cmake``) that works with the
 build tree. In some cases, for example for packaging and for system
 wide installations, it is not desirable to write the user package
-registry. If the :variable:`CMAKE_EXPORT_NO_PACKAGE_REGISTRY` variable
-is enabled, the ``export(PACKAGE)`` command will do nothing.
+registry.
+
+.. versionchanged:: 3.1
+  If the :variable:`CMAKE_EXPORT_NO_PACKAGE_REGISTRY` variable
+  is enabled, the ``export(PACKAGE)`` command will do nothing.
+
+.. versionchanged:: 3.15
+  By default the ``export(PACKAGE)`` command does nothing (see policy
+  :policy:`CMP0090`) because populating the user package registry has effects
+  outside the source and build trees.  Set the
+  :variable:`CMAKE_EXPORT_PACKAGE_REGISTRY` variable to add build directories
+  to the CMake user package registry.
 
 .. code-block:: cmake
 
   export(TARGETS [target1 [target2 [...]]]  [ANDROID_MK <filename>])
+
+.. versionadded:: 3.7
 
 This signature exports cmake built targets to the android ndk build system
 by creating an Android.mk file that references the prebuilt targets. The

@@ -2,11 +2,7 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmGeneratorExpressionLexer.h"
 
-cmGeneratorExpressionLexer::cmGeneratorExpressionLexer()
-  : SawBeginExpression(false)
-  , SawGeneratorExpression(false)
-{
-}
+cmGeneratorExpressionLexer::cmGeneratorExpressionLexer() = default;
 
 static void InsertText(const char* upto, const char* c,
                        std::vector<cmGeneratorExpressionToken>& result)
@@ -22,8 +18,8 @@ std::vector<cmGeneratorExpressionToken> cmGeneratorExpressionLexer::Tokenize(
   std::vector<cmGeneratorExpressionToken> result;
 
   if (input.find('$') == std::string::npos) {
-    result.push_back(cmGeneratorExpressionToken(
-      cmGeneratorExpressionToken::Text, input.c_str(), input.size()));
+    result.emplace_back(cmGeneratorExpressionToken::Text, input.c_str(),
+                        input.size());
     return result;
   }
 
@@ -39,14 +35,14 @@ std::vector<cmGeneratorExpressionToken> cmGeneratorExpressionLexer::Tokenize(
                               2);
           upto = c + 2;
           ++c;
-          SawBeginExpression = true;
+          this->SawBeginExpression = true;
         }
         break;
       case '>':
         InsertText(upto, c, result);
         result.emplace_back(cmGeneratorExpressionToken::EndExpression, c, 1);
         upto = c + 1;
-        SawGeneratorExpression = SawBeginExpression;
+        this->SawGeneratorExpression = this->SawBeginExpression;
         break;
       case ':':
         InsertText(upto, c, result);

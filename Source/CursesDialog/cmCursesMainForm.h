@@ -1,20 +1,23 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCursesMainForm_h
-#define cmCursesMainForm_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
+#include <cstddef>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include <cm/optional>
+
+#include "cmCursesCacheEntryComposite.h"
 #include "cmCursesForm.h"
 #include "cmCursesStandardIncludes.h"
 #include "cmStateTypes.h"
 
-#include <stddef.h>
-#include <string>
-#include <vector>
-
-class cmCursesCacheEntryComposite;
 class cmake;
+class cmCursesLongMessageForm;
 
 /** \class cmCursesMainForm
  * \brief The main page of ccmake
@@ -23,11 +26,12 @@ class cmake;
  */
 class cmCursesMainForm : public cmCursesForm
 {
-  CM_DISABLE_COPY(cmCursesMainForm)
-
 public:
-  cmCursesMainForm(std::vector<std::string> const& args, int initwidth);
+  cmCursesMainForm(std::vector<std::string> args, int initwidth);
   ~cmCursesMainForm() override;
+
+  cmCursesMainForm(cmCursesMainForm const&) = delete;
+  cmCursesMainForm& operator=(cmCursesMainForm const&) = delete;
 
   /**
    * Set the widgets which represent the cache entries.
@@ -64,8 +68,8 @@ public:
    * exception is during a resize. The optional argument specifies the
    * string to be displayed in the status bar.
    */
-  void UpdateStatusBar() override { this->UpdateStatusBar(nullptr); }
-  virtual void UpdateStatusBar(const char* message);
+  void UpdateStatusBar() override { this->UpdateStatusBar(cm::nullopt); }
+  void UpdateStatusBar(cm::optional<std::string> message);
 
   /**
    * Display current commands and their keys on the toolbar.  This
@@ -80,7 +84,7 @@ public:
    * During a CMake run, an error handle should add errors
    * to be displayed afterwards.
    */
-  void AddError(const char* message, const char* title) override;
+  void AddError(const std::string& message, const char* title) override;
 
   /**
    * Used to do a configure. If argument is specified, it does only the check
@@ -101,8 +105,7 @@ public:
   /**
    * Progress callback
    */
-  static void UpdateProgressOld(const char* msg, float prog, void*);
-  static void UpdateProgress(const char* msg, float prog, void*);
+  void UpdateProgress(const std::string& msg, float prog);
 
 protected:
   // Copy the cache values from the user interface to the actual
@@ -121,10 +124,24 @@ protected:
   // Jump to the cache entry whose name matches the string.
   void JumpToCacheEntry(const char* str);
 
+  // Clear and reset the output log and state
+  void ResetOutputs();
+
+  // Display the current progress and output
+  void DisplayOutputs(std::string const& newOutput);
+
   // Copies of cache entries stored in the user interface
-  std::vector<cmCursesCacheEntryComposite*>* Entries;
-  // Errors produced during last run of cmake
-  std::vector<std::string> Errors;
+  std::vector<cmCursesCacheEntryComposite> Entries;
+
+  // The form used to display logs during processing
+  std::unique_ptr<cmCursesLongMessageForm> LogForm;
+  // Output produced by the last pass
+  std::vector<std::string> Outputs;
+  // Did the last pass produced outputs of interest (errors, warnings, ...)
+  bool HasNonStatusOutputs;
+  // Last progress bar
+  std::string LastProgress;
+
   // Command line arguments to be passed to cmake each time
   // it is run
   std::vector<std::string> Args;
@@ -136,11 +153,7 @@ protected:
   static const char* s_ConstHelpMessage;
 
   // Fields displayed. Includes labels, new entry markers, entries
-  FIELD** Fields;
-  // Where is source of current project
-  std::string WhereSource;
-  // Where is cmake executable
-  std::string WhereCMake;
+  std::vector<FIELD*> Fields;
   // Number of entries shown (depends on mode -normal or advanced-)
   size_t NumberOfVisibleEntries;
   bool AdvancedMode;
@@ -150,11 +163,9 @@ protected:
   int NumberOfPages;
 
   int InitialWidth;
-  cmake* CMakeInstance;
+  std::unique_ptr<cmake> CMakeInstance;
 
   std::string SearchString;
   std::string OldSearchString;
   bool SearchMode;
 };
-
-#endif // cmCursesMainForm_h

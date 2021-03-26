@@ -4,55 +4,62 @@
 
 #include <sstream>
 
-#include "cmAlgorithms.h"
 #include "cmGeneratorExpression.h"
 #include "cmMakefile.h"
+#include "cmMessageType.h"
 #include "cmPolicies.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
 #include "cmTarget.h"
-#include "cmake.h"
+#include "cmTargetPropCommandBase.h"
 
-class cmExecutionStatus;
+namespace {
 
-bool cmTargetSourcesCommand::InitialPass(std::vector<std::string> const& args,
-                                         cmExecutionStatus&)
+class TargetSourcesImpl : public cmTargetPropCommandBase
 {
-  return this->HandleArguments(args, "SOURCES");
-}
+public:
+  using cmTargetPropCommandBase::cmTargetPropCommandBase;
 
-void cmTargetSourcesCommand::HandleInterfaceContent(
-  cmTarget* tgt, const std::vector<std::string>& content, bool prepend,
-  bool system)
-{
-  cmTargetPropCommandBase::HandleInterfaceContent(
-    tgt, ConvertToAbsoluteContent(tgt, content, true), prepend, system);
-}
+protected:
+  void HandleInterfaceContent(cmTarget* tgt,
+                              const std::vector<std::string>& content,
+                              bool prepend, bool system) override
+  {
+    this->cmTargetPropCommandBase::HandleInterfaceContent(
+      tgt, this->ConvertToAbsoluteContent(tgt, content, true), prepend,
+      system);
+  }
 
-void cmTargetSourcesCommand::HandleMissingTarget(const std::string& name)
-{
-  std::ostringstream e;
-  e << "Cannot specify sources for target \"" << name
-    << "\" "
-       "which is not built by this project.";
-  this->Makefile->IssueMessage(cmake::FATAL_ERROR, e.str());
-}
+private:
+  void HandleMissingTarget(const std::string& name) override
+  {
+    this->Makefile->IssueMessage(
+      MessageType::FATAL_ERROR,
+      cmStrCat("Cannot specify sources for target \"", name,
+               "\" which is not built by this project."));
+  }
 
-std::string cmTargetSourcesCommand::Join(
-  const std::vector<std::string>& content)
-{
-  return cmJoin(content, ";");
-}
+  bool HandleDirectContent(cmTarget* tgt,
+                           const std::vector<std::string>& content,
+                           bool /*prepend*/, bool /*system*/) override
+  {
+    tgt->AppendProperty(
+      "SOURCES",
+      this->Join(this->ConvertToAbsoluteContent(tgt, content, false)));
+    return true; // Successfully handled.
+  }
 
-bool cmTargetSourcesCommand::HandleDirectContent(
-  cmTarget* tgt, const std::vector<std::string>& content, bool, bool)
-{
-  tgt->AppendProperty(
-    "SOURCES",
-    this->Join(ConvertToAbsoluteContent(tgt, content, false)).c_str());
-  return true; // Successfully handled.
-}
+  std::string Join(const std::vector<std::string>& content) override
+  {
+    return cmJoin(content, ";");
+  }
 
-std::vector<std::string> cmTargetSourcesCommand::ConvertToAbsoluteContent(
+  std::vector<std::string> ConvertToAbsoluteContent(
+    cmTarget* tgt, const std::vector<std::string>& content,
+    bool isInterfaceContent);
+};
+
+std::vector<std::string> TargetSourcesImpl::ConvertToAbsoluteContent(
   cmTarget* tgt, const std::vector<std::string>& content,
   bool isInterfaceContent)
 {
@@ -75,9 +82,8 @@ std::vector<std::string> cmTargetSourcesCommand::ConvertToAbsoluteContent(
       absoluteSrc = src;
     } else {
       changedPath = true;
-      absoluteSrc = this->Makefile->GetCurrentSourceDirectory();
-      absoluteSrc += "/";
-      absoluteSrc += src;
+      absoluteSrc =
+        cmStrCat(this->Makefile->GetCurrentSourceDirectory(), '/', src);
     }
     absoluteContent.push_back(absoluteSrc);
   }
@@ -99,7 +105,7 @@ std::vector<std::string> cmTargetSourcesCommand::ConvertToAbsoluteContent(
     case cmPolicies::REQUIRED_ALWAYS:
     case cmPolicies::REQUIRED_IF_USED:
       this->Makefile->IssueMessage(
-        cmake::FATAL_ERROR,
+        MessageType::FATAL_ERROR,
         cmPolicies::GetRequiredPolicyError(cmPolicies::CMP0076));
       break;
     case cmPolicies::NEW: {
@@ -117,8 +123,16 @@ std::vector<std::string> cmTargetSourcesCommand::ConvertToAbsoluteContent(
       e << "A private source from a directory other than that of target \""
         << tgt->GetName() << "\" has a relative path.";
     }
-    this->Makefile->IssueMessage(cmake::AUTHOR_WARNING, e.str());
+    this->Makefile->IssueMessage(MessageType::AUTHOR_WARNING, e.str());
   }
 
   return useAbsoluteContent ? absoluteContent : content;
+}
+
+} // namespace
+
+bool cmTargetSourcesCommand(std::vector<std::string> const& args,
+                            cmExecutionStatus& status)
+{
+  return TargetSourcesImpl(status).HandleArguments(args, "SOURCES");
 }

@@ -30,6 +30,9 @@ source_group(Base\\Sub1\\Base FILES bar.c)
 # a group without files, is currently not created
 source_group(EmptyGroup)
 
+# Forward slashes can be delimiters too
+source_group(Base/Nested FILES nested.c)
+
 set(root ${CMAKE_CURRENT_SOURCE_DIR})
 
 set(tree_files_without_prefix ${root}/sub1/tree_bar.c
@@ -42,7 +45,15 @@ set(tree_files_with_prefix ${root}/tree_prefix_foo.c
 set(tree_files_with_empty_prefix ${root}/tree_empty_prefix_foo.c
                                  tree_empty_prefix_bar.c)
 
+set(tree_files_which_are_actually_directories ${root}
+                                              ${root}/
+                                              ${root}/sub1
+                                              ${root}/sub1/)
+
 source_group(TREE ${root} FILES ${tree_files_without_prefix})
+
+# Should not crash and not add any files - just silently ignore the directories
+source_group(TREE ${root} FILES ${tree_files_which_are_actually_directories})
 
 source_group(FILES ${tree_files_with_prefix} PREFIX tree_root/subgroup TREE ${root})
 
@@ -50,4 +61,5 @@ source_group(PREFIX "" FILES ${tree_files_with_empty_prefix} TREE ${root})
 
 add_executable(SourceGroups main.c bar.c foo.c sub1/foo.c sub1/foobar.c baz.c
                             ${tree_files_with_prefix} ${tree_files_without_prefix}
-                            ${tree_files_with_empty_prefix} README.txt)
+                            ${tree_files_with_empty_prefix} README.txt
+                            nested.c)

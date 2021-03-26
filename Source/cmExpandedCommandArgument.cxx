@@ -2,14 +2,13 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmExpandedCommandArgument.h"
 
-cmExpandedCommandArgument::cmExpandedCommandArgument()
-  : Quoted(false)
-{
-}
+#include <utility>
 
-cmExpandedCommandArgument::cmExpandedCommandArgument(std::string const& value,
+cmExpandedCommandArgument::cmExpandedCommandArgument() = default;
+
+cmExpandedCommandArgument::cmExpandedCommandArgument(std::string value,
                                                      bool quoted)
-  : Value(value)
+  : Value(std::move(value))
   , Quoted(quoted)
 {
 }
@@ -37,9 +36,4 @@ bool cmExpandedCommandArgument::operator==(std::string const& value) const
 bool cmExpandedCommandArgument::empty() const
 {
   return this->Value.empty();
-}
-
-const char* cmExpandedCommandArgument::c_str() const
-{
-  return this->Value.c_str();
 }

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 2.8.12)
 project(CheckCXXCompilerFlag)
 
 message(STATUS "CTEST_FULL_OUTPUT (Avoid ctest truncation of output)")
@@ -57,7 +57,7 @@ else()
   message("Unhandled Platform")
 endif()
 
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT "x${CMAKE_CXX_SIMULATE_ID}" STREQUAL "xMSVC")
   check_cxx_compiler_flag("-x c++" HAVE_X_CXX)
   if(NOT HAVE_X_CXX)
     message(FATAL_ERROR "${CMAKE_CXX_COMPILER_ID} compiler flag '-x c++' check failed")

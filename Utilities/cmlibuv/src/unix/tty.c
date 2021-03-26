@@ -34,6 +34,34 @@
 #define IMAXBEL 0
 #endif
 
+#if defined(__PASE__)
+/* On IBM i PASE, for better compatibility with running interactive programs in
+ * a 5250 environment, isatty() will return true for the stdin/stdout/stderr
+ * streams created by QSH/QP2TERM.
+ *
+ * For more, see docs on PASE_STDIO_ISATTY in
+ * https://www.ibm.com/support/knowledgecenter/ssw_ibm_i_74/apis/pase_environ.htm
+ *
+ * This behavior causes problems for Node as it expects that if isatty() returns
+ * true that TTY ioctls will be supported by that fd (which is not an
+ * unreasonable expectation) and when they don't it crashes with assertion
+ * errors.
+ *
+ * Here, we create our own version of isatty() that uses ioctl() to identify
+ * whether the fd is *really* a TTY or not.
+ */
+static int isreallyatty(int file) {
+  int rc;
+ 
+  rc = !ioctl(file, TXISATTY + 0x81, NULL);
+  if (!rc && errno != EBADF)
+      errno = ENOTTY;
+
+  return rc;
+}
+#define isatty(fd) isreallyatty(fd)
+#endif
+
 static int orig_termios_fd = -1;
 static struct termios orig_termios;
 static uv_spinlock_t termios_spinlock = UV_SPINLOCK_INITIALIZER;
@@ -92,13 +120,15 @@ static int uv__tty_is_slave(const int fd) {
   return result;
 }
 
-int uv_tty_init(uv_loop_t* loop, uv_tty_t* tty, int fd, int readable) {
+int uv_tty_init(uv_loop_t* loop, uv_tty_t* tty, int fd, int unused) {
   uv_handle_type type;
   int flags = 0;
   int newfd = -1;
   int r;
   int saved_flags;
+  int mode;
   char path[256];
+  (void)unused; /* deprecated parameter is no longer needed */
 
   /* File descriptors that refer to files cannot be monitored with epoll.
    * That restriction also applies to character devices like /dev/random
@@ -107,6 +137,15 @@ int uv_tty_init(uv_loop_t* loop, uv_tty_t* tty, int fd, int readable) {
   type = uv_guess_handle(fd);
   if (type == UV_FILE || type == UV_UNKNOWN_HANDLE)
     return UV_EINVAL;
+
+  /* Save the fd flags in case we need to restore them due to an error. */
+  do
+    saved_flags = fcntl(fd, F_GETFL);
+  while (saved_flags == -1 && errno == EINTR);
+
+  if (saved_flags == -1)
+    return UV__ERR(errno);
+  mode = saved_flags & O_ACCMODE;
 
   /* Reopen the file descriptor when it refers to a tty. This lets us put the
    * tty in non-blocking mode without affecting other processes that share it
@@ -125,14 +164,14 @@ int uv_tty_init(uv_loop_t* loop, uv_tty_t* tty, int fd, int readable) {
      * slave device.
      */
     if (uv__tty_is_slave(fd) && ttyname_r(fd, path, sizeof(path)) == 0)
-      r = uv__open_cloexec(path, O_RDWR);
+      r = uv__open_cloexec(path, mode | O_NOCTTY);
     else
       r = -1;
 
     if (r < 0) {
       /* fallback to using blocking writes */
-      if (!readable)
-        flags |= UV_STREAM_BLOCKING;
+      if (mode != O_RDONLY)
+        flags |= UV_HANDLE_BLOCKING_WRITES;
       goto skip;
     }
 
@@ -151,22 +190,6 @@ int uv_tty_init(uv_loop_t* loop, uv_tty_t* tty, int fd, int readable) {
     fd = newfd;
   }
 
-#if defined(__APPLE__)
-  /* Save the fd flags in case we need to restore them due to an error. */
-  do
-    saved_flags = fcntl(fd, F_GETFL);
-  while (saved_flags == -1 && errno == EINTR);
-
-  if (saved_flags == -1) {
-    if (newfd != -1)
-      uv__close(newfd);
-    return UV__ERR(errno);
-  }
-#endif
-
-  /* Pacify the compiler. */
-  (void) &saved_flags;
-
 skip:
   uv__stream_init(loop, (uv_stream_t*) tty, UV_TTY);
 
@@ -174,7 +197,7 @@ skip:
    * the handle queue, since it was added by uv__handle_init in uv_stream_init.
    */
 
-  if (!(flags & UV_STREAM_BLOCKING))
+  if (!(flags & UV_HANDLE_BLOCKING_WRITES))
     uv__nonblock(fd, 1);
 
 #if defined(__APPLE__)
@@ -191,10 +214,10 @@ skip:
   }
 #endif
 
-  if (readable)
-    flags |= UV_STREAM_READABLE;
-  else
-    flags |= UV_STREAM_WRITABLE;
+  if (mode != O_WRONLY)
+    flags |= UV_HANDLE_READABLE;
+  if (mode != O_RDONLY)
+    flags |= UV_HANDLE_WRITABLE;
 
   uv__stream_open((uv_stream_t*) tty, fd, flags);
   tty->mode = UV_TTY_MODE_NORMAL;
@@ -205,7 +228,7 @@ skip:
 static void uv__tty_make_raw(struct termios* tio) {
   assert(tio != NULL);
 
-#if defined __sun || defined __MVS__
+#if defined __sun || defined __MVS__ || defined __hpux
   /*
    * This implementation of cfmakeraw for Solaris and derivatives is taken from
    * http://www.perkin.org.uk/posts/solaris-portability-cfmakeraw.html.
@@ -366,4 +389,11 @@ int uv_tty_reset_mode(void) {
   errno = saved_errno;
 
   return err;
+}
+
+void uv_tty_set_vterm_state(uv_tty_vtermstate_t state) {
+}
+
+int uv_tty_get_vterm_state(uv_tty_vtermstate_t* state) {
+  return UV_ENOTSUP;
 }

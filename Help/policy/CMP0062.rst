@@ -1,7 +1,9 @@
 CMP0062
 -------
 
-Disallow install() of export() result.
+.. versionadded:: 3.3
+
+Disallow :command:`install` of :command:`export` result.
 
 The :command:`export()` command generates a file containing
 :ref:`Imported Targets`, which is suitable for use from the build

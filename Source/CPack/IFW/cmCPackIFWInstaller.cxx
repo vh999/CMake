@@ -2,23 +2,22 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmCPackIFWInstaller.h"
 
+#include <cstddef>
+#include <sstream>
+#include <utility>
+
 #include "cmCPackIFWCommon.h"
 #include "cmCPackIFWGenerator.h"
 #include "cmCPackIFWPackage.h"
 #include "cmCPackIFWRepository.h"
 #include "cmCPackLog.h" // IWYU pragma: keep
 #include "cmGeneratedFileStream.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
 #include "cmXMLParser.h"
 #include "cmXMLWriter.h"
 
-#include <sstream>
-#include <stddef.h>
-#include <utility>
-
-cmCPackIFWInstaller::cmCPackIFWInstaller()
-{
-}
+cmCPackIFWInstaller::cmCPackIFWInstaller() = default;
 
 void cmCPackIFWInstaller::printSkippedOptionWarning(
   const std::string& optionName, const std::string& optionValue)
@@ -67,7 +66,7 @@ void cmCPackIFWInstaller::ConfigureFromOptions()
         this->GetOption("CPACK_IFW_PACKAGE_PUBLISHER")) {
     this->Publisher = optIFW_PACKAGE_PUBLISHER;
   } else if (const char* optPACKAGE_VENDOR =
-               GetOption("CPACK_PACKAGE_VENDOR")) {
+               this->GetOption("CPACK_PACKAGE_VENDOR")) {
     this->Publisher = optPACKAGE_VENDOR;
   }
 
@@ -154,6 +153,15 @@ void cmCPackIFWInstaller::ConfigureFromOptions()
     }
   }
 
+  // StyleSheet
+  if (const char* option = this->GetOption("CPACK_IFW_PACKAGE_STYLE_SHEET")) {
+    if (cmSystemTools::FileExists(option)) {
+      this->StyleSheet = option;
+    } else {
+      this->printSkippedOptionWarning("CPACK_IFW_PACKAGE_STYLE_SHEET", option);
+    }
+  }
+
   // WizardDefaultWidth
   if (const char* option =
         this->GetOption("CPACK_IFW_PACKAGE_WIZARD_DEFAULT_WIDTH")) {
@@ -166,6 +174,35 @@ void cmCPackIFWInstaller::ConfigureFromOptions()
     this->WizardDefaultHeight = option;
   }
 
+  // WizardShowPageList
+  if (const char* option =
+        this->GetOption("CPACK_IFW_PACKAGE_WIZARD_SHOW_PAGE_LIST")) {
+    if (!this->IsVersionLess("4.0")) {
+      if (this->IsSetToOff("CPACK_IFW_PACKAGE_WIZARD_SHOW_PAGE_LIST")) {
+        this->WizardShowPageList = "false";
+      } else if (this->IsOn("CPACK_IFW_PACKAGE_WIZARD_SHOW_PAGE_LIST")) {
+        this->WizardShowPageList = "true";
+      } else {
+        this->WizardShowPageList.clear();
+      }
+    } else {
+      std::string currentVersionMsg;
+      if (this->Generator) {
+        currentVersionMsg =
+          "QtIFW version " + this->Generator->FrameworkVersion;
+      } else {
+        currentVersionMsg = "an older QtIFW version";
+      }
+      cmCPackIFWLogger(
+        WARNING,
+        "Option CPACK_IFW_PACKAGE_WIZARD_SHOW_PAGE_LIST is set to \""
+          << option
+          << "\", but it is only supported with QtIFW version 4.0 or later. "
+             "It is being ignored because you are using "
+          << currentVersionMsg << std::endl);
+    }
+  }
+
   // TitleColor
   if (const char* option = this->GetOption("CPACK_IFW_PACKAGE_TITLE_COLOR")) {
     this->TitleColor = option;
@@ -176,7 +213,7 @@ void cmCPackIFWInstaller::ConfigureFromOptions()
         this->GetOption("CPACK_IFW_PACKAGE_START_MENU_DIRECTORY")) {
     this->StartMenuDir = optIFW_START_MENU_DIR;
   } else {
-    this->StartMenuDir = Name;
+    this->StartMenuDir = this->Name;
   }
 
   // Default target directory for installation
@@ -185,8 +222,8 @@ void cmCPackIFWInstaller::ConfigureFromOptions()
     this->TargetDir = optIFW_TARGET_DIRECTORY;
   } else if (const char* optPACKAGE_INSTALL_DIRECTORY =
                this->GetOption("CPACK_PACKAGE_INSTALL_DIRECTORY")) {
-    this->TargetDir = "@ApplicationsDir@/";
-    this->TargetDir += optPACKAGE_INSTALL_DIRECTORY;
+    this->TargetDir =
+      cmStrCat("@ApplicationsDir@/", optPACKAGE_INSTALL_DIRECTORY);
   } else {
     this->TargetDir = "@RootDir@/usr/local";
   }
@@ -237,8 +274,7 @@ void cmCPackIFWInstaller::ConfigureFromOptions()
   if (const char* optIFW_PACKAGE_RESOURCES =
         this->GetOption("CPACK_IFW_PACKAGE_RESOURCES")) {
     this->Resources.clear();
-    cmSystemTools::ExpandListArgument(optIFW_PACKAGE_RESOURCES,
-                                      this->Resources);
+    cmExpandList(optIFW_PACKAGE_RESOURCES, this->Resources);
   }
 }
 
@@ -248,9 +284,8 @@ void cmCPackIFWInstaller::ConfigureFromOptions()
 class cmCPackIFWResourcesParser : public cmXMLParser
 {
 public:
-  cmCPackIFWResourcesParser(cmCPackIFWInstaller* i)
+  explicit cmCPackIFWResourcesParser(cmCPackIFWInstaller* i)
     : installer(i)
-    , file(false)
   {
     this->path = i->Directory + "/resources";
   }
@@ -269,14 +304,16 @@ public:
   }
 
   cmCPackIFWInstaller* installer;
-  bool file, hasFiles, hasErrors;
+  bool file = false;
+  bool hasFiles = false;
+  bool hasErrors = false;
   std::string path, basePath;
 
 protected:
   void StartElement(const std::string& name, const char** /*atts*/) override
   {
     this->file = name == "file";
-    if (file) {
+    if (this->file) {
       this->hasFiles = true;
     }
   }
@@ -285,11 +322,10 @@ protected:
   {
     if (this->file) {
       std::string content(data, data + length);
-      content = cmSystemTools::TrimWhitespace(content);
+      content = cmTrimWhitespace(content);
       std::string source = this->basePath + "/" + content;
       std::string destination = this->path + "/" + content;
-      if (!cmSystemTools::CopyFileIfDifferent(source.data(),
-                                              destination.data())) {
+      if (!cmSystemTools::CopyFileIfDifferent(source, destination)) {
         this->hasErrors = true;
       }
     }
@@ -311,7 +347,7 @@ void cmCPackIFWInstaller::GenerateInstallerFile()
 
   xout.StartDocument();
 
-  WriteGeneratedByToStrim(xout);
+  this->WriteGeneratedByToStrim(xout);
 
   xout.StartElement("Installer");
 
@@ -384,6 +420,14 @@ void cmCPackIFWInstaller::GenerateInstallerFile()
     xout.Element("WizardStyle", this->WizardStyle);
   }
 
+  // Stylesheet
+  if (!this->StyleSheet.empty()) {
+    std::string name = cmSystemTools::GetFilenameName(this->StyleSheet);
+    std::string path = this->Directory + "/config/" + name;
+    cmsys::SystemTools::CopyFileIfDifferent(this->StyleSheet, path);
+    xout.Element("StyleSheet", name);
+  }
+
   // WizardDefaultWidth
   if (!this->WizardDefaultWidth.empty()) {
     xout.Element("WizardDefaultWidth", this->WizardDefaultWidth);
@@ -392,6 +436,11 @@ void cmCPackIFWInstaller::GenerateInstallerFile()
   // WizardDefaultHeight
   if (!this->WizardDefaultHeight.empty()) {
     xout.Element("WizardDefaultHeight", this->WizardDefaultHeight);
+  }
+
+  // WizardShowPageList
+  if (!this->IsVersionLess("4.0") && !this->WizardShowPageList.empty()) {
+    xout.Element("WizardShowPageList", this->WizardShowPageList);
   }
 
   // TitleColor
@@ -496,7 +545,7 @@ void cmCPackIFWInstaller::GeneratePackageFiles()
       package.ConfigureFromGroup(option);
       std::string forcedOption = "CPACK_IFW_COMPONENT_GROUP_" +
         cmsys::SystemTools::UpperCase(option) + "_FORCED_INSTALLATION";
-      if (!GetOption(forcedOption)) {
+      if (!this->GetOption(forcedOption)) {
         package.ForcedInstallation = "true";
       }
     } else {

@@ -45,7 +45,7 @@ __FBSDID("$FreeBSD$");
 #include <unistd.h>
 #endif
 #if HAVE_ZSTD_H
-#include <zstd.h>
+#include <cm3p/zstd.h>
 #endif
 
 #include "archive.h"

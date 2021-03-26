@@ -1,14 +1,16 @@
-#include <cuda.h>
-#include <cuda_runtime.h>
 #include <iostream>
 
+#include <cuda.h>
+#include <cuda_runtime.h>
 #include <inc_cuda.h>
 #ifndef INC_CUDA
 #  error "INC_CUDA not defined!"
 #endif
 
-#ifndef HOST_DEFINE
-#  error "HOST_DEFINE not defined!"
+#ifdef __NVCC__
+#  ifndef HOST_DEFINE
+#    error "HOST_DEFINE not defined!"
+#  endif
 #endif
 
 #ifndef PACKED_DEFINE
@@ -37,6 +39,14 @@
 
 #if !DEF_LANG_IS_CUDA
 #  error "Expected DEF_LANG_IS_CUDA"
+#endif
+
+#ifndef DEF_CUDA_COMPILER
+#  error "DEF_CUDA_COMPILER not defined!"
+#endif
+
+#ifndef DEF_CUDA_COMPILER_VERSION
+#  error "DEF_CUDA_COMPILER_VERSION not defined!"
 #endif
 
 static __global__ void DetermineIfValidCudaDevice()

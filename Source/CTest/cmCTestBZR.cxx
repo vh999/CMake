@@ -2,19 +2,23 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmCTestBZR.h"
 
+#include <cstdlib>
+#include <list>
+#include <map>
+#include <ostream>
+#include <vector>
+
+#include <cmext/algorithm>
+
+#include <cm3p/expat.h>
+
+#include "cmsys/RegularExpression.hxx"
+
 #include "cmCTest.h"
 #include "cmCTestVC.h"
 #include "cmProcessTools.h"
 #include "cmSystemTools.h"
 #include "cmXMLParser.h"
-
-#include "cm_expat.h"
-#include "cmsys/RegularExpression.hxx"
-#include <list>
-#include <map>
-#include <ostream>
-#include <stdlib.h>
-#include <vector>
 
 extern "C" int cmBZRXMLParserUnknownEncodingHandler(void* /*unused*/,
                                                     const XML_Char* name,
@@ -77,9 +81,7 @@ cmCTestBZR::cmCTestBZR(cmCTest* ct, std::ostream& log)
   cmSystemTools::PutEnv("BZR_PROGRESS_BAR=none");
 }
 
-cmCTestBZR::~cmCTestBZR()
-{
-}
+cmCTestBZR::~cmCTestBZR() = default;
 
 class cmCTestBZR::InfoParser : public cmCTestVC::LineParser
 {
@@ -102,8 +104,8 @@ private:
   {
     if (this->RegexCheckOut.find(this->Line)) {
       this->BZR->URL = this->RegexCheckOut.match(1);
-      CheckOutFound = true;
-    } else if (!CheckOutFound && this->RegexParent.find(this->Line)) {
+      this->CheckOutFound = true;
+    } else if (!this->CheckOutFound && this->RegexParent.find(this->Line)) {
       this->BZR->URL = this->RegexParent.match(1);
     }
     return true;
@@ -189,7 +191,7 @@ public:
 
   int InitializeParser() override
   {
-    int res = cmXMLParser::InitializeParser();
+    int res = this->cmXMLParser::InitializeParser();
     if (res) {
       XML_SetUnknownEncodingHandler(static_cast<XML_Parser>(this->Parser),
                                     cmBZRXMLParserUnknownEncodingHandler,
@@ -201,8 +203,8 @@ public:
 private:
   cmCTestBZR* BZR;
 
-  typedef cmCTestBZR::Revision Revision;
-  typedef cmCTestBZR::Change Change;
+  using Revision = cmCTestBZR::Revision;
+  using Change = cmCTestBZR::Change;
   Revision Rev;
   std::vector<Change> Changes;
   Change CurChange;
@@ -244,7 +246,7 @@ private:
 
   void CharacterDataHandler(const char* data, int length) override
   {
-    this->CData.insert(this->CData.end(), data, data + length);
+    cm::append(this->CData, data, data + length);
   }
 
   void EndElement(const std::string& name) override
@@ -367,7 +369,7 @@ bool cmCTestBZR::UpdateImpl()
   if (opts.empty()) {
     opts = this->CTest->GetCTestConfiguration("BZRUpdateOptions");
   }
-  std::vector<std::string> args = cmSystemTools::ParseArguments(opts.c_str());
+  std::vector<std::string> args = cmSystemTools::ParseArguments(opts);
 
   // TODO: if(this->CTest->GetTestModel() == cmCTest::NIGHTLY)
 

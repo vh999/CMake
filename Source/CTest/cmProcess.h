@@ -1,20 +1,22 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmProcess_h
-#define cmProcess_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
-#include "cmDuration.h"
-
-#include "cmProcessOutput.h"
-#include "cmUVHandlePtr.h"
-#include "cm_uv.h"
 
 #include <chrono>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include <cm3p/uv.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <string>
-#include <vector>
+
+#include "cmDuration.h"
+#include "cmProcessOutput.h"
+#include "cmUVHandlePtr.h"
 
 class cmCTestRunTest;
 
@@ -26,12 +28,11 @@ class cmCTestRunTest;
 class cmProcess
 {
 public:
-  explicit cmProcess(cmCTestRunTest& runner);
+  explicit cmProcess(std::unique_ptr<cmCTestRunTest> runner);
   ~cmProcess();
-  const char* GetCommand() { return this->Command.c_str(); }
-  void SetCommand(const char* command);
+  void SetCommand(std::string const& command);
   void SetCommandArguments(std::vector<std::string> const& arg);
-  void SetWorkingDirectory(const char* dir) { this->WorkingDirectory = dir; }
+  void SetWorkingDirectory(std::string const& dir);
   void SetTimeout(cmDuration t) { this->Timeout = t; }
   void ChangeTimeout(cmDuration t);
   void ResetStartTime();
@@ -53,7 +54,7 @@ public:
   State GetProcessStatus();
   int GetId() { return this->Id; }
   void SetId(int id) { this->Id = id; }
-  int GetExitValue() { return this->ExitValue; }
+  int64_t GetExitValue() { return this->ExitValue; }
   cmDuration GetTotalTime() { return this->TotalTime; }
 
   enum class Exception
@@ -66,8 +67,13 @@ public:
     Other
   };
 
-  Exception GetExitException();
-  std::string GetExitExceptionString();
+  Exception GetExitException() const;
+  std::string GetExitExceptionString() const;
+
+  std::unique_ptr<cmCTestRunTest> GetRunner()
+  {
+    return std::move(this->Runner);
+  }
 
 private:
   cmDuration Timeout;
@@ -81,7 +87,7 @@ private:
   cm::uv_timer_ptr Timer;
   std::vector<char> Buf;
 
-  cmCTestRunTest& Runner;
+  std::unique_ptr<cmCTestRunTest> Runner;
   cmProcessOutput Conv;
   int Signal = 0;
   cmProcess::State ProcessState = cmProcess::State::Starting;
@@ -100,6 +106,7 @@ private:
   void OnAllocate(size_t suggested_size, uv_buf_t* buf);
 
   void StartTimer();
+  void Finish();
 
   class Buffer : public std::vector<char>
   {
@@ -122,7 +129,5 @@ private:
   std::vector<std::string> Arguments;
   std::vector<const char*> ProcessArgs;
   int Id;
-  int ExitValue;
+  int64_t ExitValue;
 };
-
-#endif

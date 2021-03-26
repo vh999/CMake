@@ -1,18 +1,17 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef _cmDocumentation_h
-#define _cmDocumentation_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
-
-#include "cmDocumentationFormatter.h"
 
 #include <iosfwd>
 #include <map>
 #include <string>
 #include <vector>
 
-class cmDocumentationSection;
+#include "cmDocumentationFormatter.h"
+#include "cmDocumentationSection.h"
+
 struct cmDocumentationEntry;
 
 /** Class to generate documentation.  */
@@ -20,8 +19,6 @@ class cmDocumentation : public cmDocumentationEnums
 {
 public:
   cmDocumentation();
-
-  ~cmDocumentation();
 
   /**
    * Check command line arguments for documentation options.  Returns
@@ -52,11 +49,11 @@ public:
 
   /** Set a section of the documentation. Typical sections include Name,
       Usage, Description, Options */
-  void SetSection(const char* sectionName, cmDocumentationSection* section);
+  void SetSection(const char* sectionName, cmDocumentationSection section);
   void SetSection(const char* sectionName,
                   std::vector<cmDocumentationEntry>& docs);
   void SetSection(const char* sectionName, const char* docs[][2]);
-  void SetSections(std::map<std::string, cmDocumentationSection*>& sections);
+  void SetSections(std::map<std::string, cmDocumentationSection> sections);
 
   /** Add the documentation to the beginning/end of the section */
   void PrependSection(const char* sectionName, const char* docs[][2]);
@@ -110,17 +107,14 @@ private:
   bool ShowGenerators;
 
   std::string NameString;
-  std::map<std::string, cmDocumentationSection*> AllSections;
+  std::map<std::string, cmDocumentationSection> AllSections;
+  cmDocumentationSection& SectionAtName(const char* name);
 
   std::string CurrentArgument;
 
   struct RequestedHelpItem
   {
-    RequestedHelpItem()
-      : HelpType(None)
-    {
-    }
-    cmDocumentationEnums::Type HelpType;
+    cmDocumentationEnums::Type HelpType = None;
     std::string Filename;
     std::string Argument;
   };
@@ -130,5 +124,3 @@ private:
 
   static void WarnFormFromFilename(RequestedHelpItem& request, bool& result);
 };
-
-#endif

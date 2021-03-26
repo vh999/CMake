@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 2.8.12)
 project(ObjectLibrary C)
 
 add_subdirectory(A)
@@ -62,4 +62,16 @@ add_custom_target(UseABinternalDep COMMAND ${CMAKE_COMMAND} -E touch UseABintern
 add_custom_command(TARGET UseABinternal POST_BUILD COMMAND ${CMAKE_COMMAND} -P UseABinternalDep.cmake)
 add_dependencies(UseABinternal UseABinternalDep)
 
+# Test a static library with sources from a different static library
+add_library(UseCstaticObjs STATIC $<TARGET_OBJECTS:Cstatic> $<TARGET_OBJECTS:A> $<TARGET_OBJECTS:Bexport>)
+
+# Test a shared library with sources from a different shared library
+add_library(UseCsharedObjs SHARED $<TARGET_OBJECTS:Cshared> $<TARGET_OBJECTS:A> $<TARGET_OBJECTS:Bexport>)
+
+# Test a shared executable with sources from a different shared library
+add_executable(UseABstaticObjs $<TARGET_OBJECTS:UseABstatic>)
+target_link_libraries(UseABstaticObjs ABstatic)
+
 add_subdirectory(ExportLanguages)
+
+add_subdirectory(Transitive)

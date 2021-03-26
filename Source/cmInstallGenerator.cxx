@@ -2,25 +2,26 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmInstallGenerator.h"
 
+#include <ostream>
+#include <utility>
+
 #include "cmMakefile.h"
 #include "cmSystemTools.h"
 
-#include <ostream>
-
 cmInstallGenerator::cmInstallGenerator(
-  const char* destination, std::vector<std::string> const& configurations,
-  const char* component, MessageLevel message, bool exclude_from_all)
+  std::string destination, std::vector<std::string> const& configurations,
+  std::string component, MessageLevel message, bool exclude_from_all,
+  cmListFileBacktrace backtrace)
   : cmScriptGenerator("CMAKE_INSTALL_CONFIG_NAME", configurations)
-  , Destination(destination ? destination : "")
-  , Component(component ? component : "")
+  , Destination(std::move(destination))
+  , Component(std::move(component))
   , Message(message)
   , ExcludeFromAll(exclude_from_all)
+  , Backtrace(std::move(backtrace))
 {
 }
 
-cmInstallGenerator::~cmInstallGenerator()
-{
-}
+cmInstallGenerator::~cmInstallGenerator() = default;
 
 bool cmInstallGenerator::HaveInstall()
 {
@@ -71,17 +72,18 @@ void cmInstallGenerator::AddInstallRule(
   if (cmSystemTools::FileIsFullPath(dest)) {
     os << "list(APPEND CMAKE_ABSOLUTE_DESTINATION_FILES\n";
     os << indent << " \"";
-    for (std::vector<std::string>::const_iterator fi = files.begin();
-         fi != files.end(); ++fi) {
-      if (fi != files.begin()) {
+    bool firstIteration = true;
+    for (std::string const& file : files) {
+      if (!firstIteration) {
         os << ";";
       }
       os << dest << "/";
       if (rename && *rename) {
         os << rename;
       } else {
-        os << cmSystemTools::GetFilenameName(*fi);
+        os << cmSystemTools::GetFilenameName(file);
       }
+      firstIteration = false;
     }
     os << "\")\n";
     os << indent << "if(CMAKE_WARN_ON_ABSOLUTE_INSTALL_DESTINATION)\n";
@@ -140,10 +142,10 @@ void cmInstallGenerator::AddInstallRule(
   os << ")\n";
 }
 
-std::string cmInstallGenerator::CreateComponentTest(const char* component,
-                                                    bool exclude_from_all)
+std::string cmInstallGenerator::CreateComponentTest(
+  const std::string& component, bool exclude_from_all)
 {
-  std::string result = "\"x${CMAKE_INSTALL_COMPONENT}x\" STREQUAL \"x";
+  std::string result = R"("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "x)";
   result += component;
   result += "x\"";
   if (!exclude_from_all) {
@@ -159,7 +161,7 @@ void cmInstallGenerator::GenerateScript(std::ostream& os)
 
   // Begin this block of installation.
   std::string component_test =
-    this->CreateComponentTest(this->Component.c_str(), this->ExcludeFromAll);
+    this->CreateComponentTest(this->Component, this->ExcludeFromAll);
   os << indent << "if(" << component_test << ")\n";
 
   // Generate the script possibly with per-configuration code.

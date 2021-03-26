@@ -10,7 +10,7 @@ or macro in ``C``.
 
 .. command:: check_symbol_exists
 
-  ::
+  .. code-block:: cmake
 
     check_symbol_exists(<symbol> <files> <variable>)
 
@@ -32,15 +32,32 @@ The following variables may be set before calling this macro to modify
 the way the check is run:
 
 ``CMAKE_REQUIRED_FLAGS``
-  string of compile command line flags
+  string of compile command line flags.
 ``CMAKE_REQUIRED_DEFINITIONS``
-  list of macros to define (-DFOO=bar)
+  a :ref:`;-list <CMake Language Lists>` of macros to define (-DFOO=bar).
 ``CMAKE_REQUIRED_INCLUDES``
-  list of include directories
+  a :ref:`;-list <CMake Language Lists>` of header search paths to pass to
+  the compiler.
+``CMAKE_REQUIRED_LINK_OPTIONS``
+  .. versionadded:: 3.14
+    a :ref:`;-list <CMake Language Lists>` of options to add to the link command.
 ``CMAKE_REQUIRED_LIBRARIES``
-  list of libraries to link
+  a :ref:`;-list <CMake Language Lists>` of libraries to add to the link
+  command. See policy :policy:`CMP0075`.
 ``CMAKE_REQUIRED_QUIET``
-  execute quietly without messages
+  .. versionadded:: 3.1
+    execute quietly without messages.
+
+For example:
+
+.. code-block:: cmake
+
+  include(CheckSymbolExists)
+
+  # Check for macro SEEK_SET
+  check_symbol_exists(SEEK_SET "stdio.h" HAVE_SEEK_SET)
+  # Check for function fopen
+  check_symbol_exists(fopen "stdio.h" HAVE_FOPEN)
 #]=======================================================================]
 
 include_guard(GLOBAL)
@@ -62,6 +79,12 @@ macro(__CHECK_SYMBOL_EXISTS_IMPL SOURCEFILE SYMBOL FILES VARIABLE)
   if(NOT DEFINED "${VARIABLE}" OR "x${${VARIABLE}}" STREQUAL "x${VARIABLE}")
     set(CMAKE_CONFIGURABLE_FILE_CONTENT "/* */\n")
     set(MACRO_CHECK_SYMBOL_EXISTS_FLAGS ${CMAKE_REQUIRED_FLAGS})
+    if(CMAKE_REQUIRED_LINK_OPTIONS)
+      set(CHECK_SYMBOL_EXISTS_LINK_OPTIONS
+        LINK_OPTIONS ${CMAKE_REQUIRED_LINK_OPTIONS})
+    else()
+      set(CHECK_SYMBOL_EXISTS_LINK_OPTIONS)
+    endif()
     if(CMAKE_REQUIRED_LIBRARIES)
       set(CHECK_SYMBOL_EXISTS_LIBS
         LINK_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES})
@@ -78,19 +101,40 @@ macro(__CHECK_SYMBOL_EXISTS_IMPL SOURCEFILE SYMBOL FILES VARIABLE)
       string(APPEND CMAKE_CONFIGURABLE_FILE_CONTENT
         "#include <${FILE}>\n")
     endforeach()
-    string(APPEND CMAKE_CONFIGURABLE_FILE_CONTENT
-      "\nint main(int argc, char** argv)\n{\n  (void)argv;\n#ifndef ${SYMBOL}\n  return ((int*)(&${SYMBOL}))[argc];\n#else\n  (void)argc;\n  return 0;\n#endif\n}\n")
+    string(APPEND CMAKE_CONFIGURABLE_FILE_CONTENT "
+int main(int argc, char** argv)
+{
+  (void)argv;")
+    set(_CSE_CHECK_NON_MACRO "return ((int*)(&${SYMBOL}))[argc];")
+    if("${SYMBOL}" MATCHES "^[a-zA-Z_][a-zA-Z0-9_]*$")
+      # The SYMBOL has a legal macro name.  Test whether it exists as a macro.
+      string(APPEND CMAKE_CONFIGURABLE_FILE_CONTENT "
+#ifndef ${SYMBOL}
+  ${_CSE_CHECK_NON_MACRO}
+#else
+  (void)argc;
+  return 0;
+#endif")
+    else()
+      # The SYMBOL cannot be a macro (e.g., a template function).
+      string(APPEND CMAKE_CONFIGURABLE_FILE_CONTENT "
+  ${_CSE_CHECK_NON_MACRO}")
+    endif()
+    string(APPEND CMAKE_CONFIGURABLE_FILE_CONTENT "
+}")
+    unset(_CSE_CHECK_NON_MACRO)
 
     configure_file("${CMAKE_ROOT}/Modules/CMakeConfigurableFile.in"
       "${SOURCEFILE}" @ONLY)
 
     if(NOT CMAKE_REQUIRED_QUIET)
-      message(STATUS "Looking for ${SYMBOL}")
+      message(CHECK_START "Looking for ${SYMBOL}")
     endif()
     try_compile(${VARIABLE}
       ${CMAKE_BINARY_DIR}
       "${SOURCEFILE}"
       COMPILE_DEFINITIONS ${CMAKE_REQUIRED_DEFINITIONS}
+      ${CHECK_SYMBOL_EXISTS_LINK_OPTIONS}
       ${CHECK_SYMBOL_EXISTS_LIBS}
       CMAKE_FLAGS
       -DCOMPILE_DEFINITIONS:STRING=${MACRO_CHECK_SYMBOL_EXISTS_FLAGS}
@@ -98,7 +142,7 @@ macro(__CHECK_SYMBOL_EXISTS_IMPL SOURCEFILE SYMBOL FILES VARIABLE)
       OUTPUT_VARIABLE OUTPUT)
     if(${VARIABLE})
       if(NOT CMAKE_REQUIRED_QUIET)
-        message(STATUS "Looking for ${SYMBOL} - found")
+        message(CHECK_PASS "found")
       endif()
       set(${VARIABLE} 1 CACHE INTERNAL "Have symbol ${SYMBOL}")
       file(APPEND ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeOutput.log
@@ -108,7 +152,7 @@ macro(__CHECK_SYMBOL_EXISTS_IMPL SOURCEFILE SYMBOL FILES VARIABLE)
         "${CMAKE_CONFIGURABLE_FILE_CONTENT}\n")
     else()
       if(NOT CMAKE_REQUIRED_QUIET)
-        message(STATUS "Looking for ${SYMBOL} - not found")
+        message(CHECK_FAIL "not found")
       endif()
       set(${VARIABLE} "" CACHE INTERNAL "Have symbol ${SYMBOL}")
       file(APPEND ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeError.log
@@ -117,6 +161,7 @@ macro(__CHECK_SYMBOL_EXISTS_IMPL SOURCEFILE SYMBOL FILES VARIABLE)
         "${OUTPUT}\nFile ${SOURCEFILE}:\n"
         "${CMAKE_CONFIGURABLE_FILE_CONTENT}\n")
     endif()
+    unset(CMAKE_CONFIGURABLE_FILE_CONTENT)
   endif()
 endmacro()
 

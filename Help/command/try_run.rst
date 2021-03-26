@@ -12,21 +12,28 @@ Try Compiling and Running Source Files
 
 .. code-block:: cmake
 
-  try_run(RUN_RESULT_VAR COMPILE_RESULT_VAR
-          bindir srcfile [CMAKE_FLAGS <flags>...]
+  try_run(<runResultVar> <compileResultVar>
+          <bindir> <srcfile> [CMAKE_FLAGS <flags>...]
           [COMPILE_DEFINITIONS <defs>...]
+          [LINK_OPTIONS <options>...]
           [LINK_LIBRARIES <libs>...]
           [COMPILE_OUTPUT_VARIABLE <var>]
           [RUN_OUTPUT_VARIABLE <var>]
           [OUTPUT_VARIABLE <var>]
+          [WORKING_DIRECTORY <var>]
           [ARGS <args>...])
 
 Try compiling a ``<srcfile>``.  Returns ``TRUE`` or ``FALSE`` for success
-or failure in ``COMPILE_RESULT_VAR``.  If the compile succeeded, runs the
-executable and returns its exit code in ``RUN_RESULT_VAR``.  If the
-executable was built, but failed to run, then ``RUN_RESULT_VAR`` will be
+or failure in ``<compileResultVar>``.  If the compile succeeded, runs the
+executable and returns its exit code in ``<runResultVar>``.  If the
+executable was built, but failed to run, then ``<runResultVar>`` will be
 set to ``FAILED_TO_RUN``.  See the :command:`try_compile` command for
 information on how the test project is constructed to build the source file.
+
+.. versionadded:: 3.14
+  The names of the result variables ``<runResultVar>`` and
+  ``<compileResultVar>`` are defined by the user.  Previously, they had
+  fixed names ``RUN_RESULT_VAR`` and ``COMPILE_RESULT_VAR``.
 
 The options are:
 
@@ -38,19 +45,27 @@ The options are:
   are used.
 
 ``COMPILE_DEFINITIONS <defs>...``
-  Specify ``-Ddefinition`` arguments to pass to ``add_definitions``
+  Specify ``-Ddefinition`` arguments to pass to :command:`add_definitions`
   in the generated test project.
 
 ``COMPILE_OUTPUT_VARIABLE <var>``
   Report the compile step build output in a given variable.
 
 ``LINK_LIBRARIES <libs>...``
+  .. versionadded:: 3.2
+
   Specify libraries to be linked in the generated project.
   The list of libraries may refer to system libraries and to
   :ref:`Imported Targets <Imported Targets>` from the calling project.
 
   If this option is specified, any ``-DLINK_LIBRARIES=...`` value
   given to the ``CMAKE_FLAGS`` option will be ignored.
+
+``LINK_OPTIONS <options>...``
+  .. versionadded:: 3.14
+
+  Specify link step options to pass to :command:`target_link_options` in the
+  generated project.
 
 ``OUTPUT_VARIABLE <var>``
   Report the compile build output and the output from running the executable
@@ -60,6 +75,12 @@ The options are:
 ``RUN_OUTPUT_VARIABLE <var>``
   Report the output from running the executable in a given variable.
 
+``WORKING_DIRECTORY <var>``
+  .. versionadded:: 3.20
+
+  Run the executable in the given directory. If no ``WORKING_DIRECTORY`` is
+  specified, the executable will run in ``<bindir>``.
+
 Other Behavior Settings
 ^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -68,6 +89,10 @@ a build configuration.
 
 Behavior when Cross Compiling
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. versionadded:: 3.3
+  Use ``CMAKE_CROSSCOMPILING_EMULATOR`` when running cross-compiled
+  binaries.
 
 When cross compiling, the executable compiled in the first step
 usually cannot be run on the build host.  The ``try_run`` command checks
@@ -80,10 +105,10 @@ presetting them in some CMake script file to the values the executable
 would have produced if it had been run on its actual target platform.
 These cache entries are:
 
-``<RUN_RESULT_VAR>``
+``<runResultVar>``
   Exit code if the executable were to be run on the target platform.
 
-``<RUN_RESULT_VAR>__TRYRUN_OUTPUT``
+``<runResultVar>__TRYRUN_OUTPUT``
   Output from stdout and stderr if the executable were to be run on
   the target platform.  This is created only if the
   ``RUN_OUTPUT_VARIABLE`` or ``OUTPUT_VARIABLE`` option was used.

@@ -51,6 +51,12 @@ checkForProperty(bld_testLib4 "EXPORTED_PROPERTY2"  "EXPORTING_TESTLIB4_1")
 checkForProperty(exp_testLib4 "EXPORTED_PROPERTY2"  "EXPORTING_TESTLIB4_1")
 checkForProperty(bld_testLib4 "EXPORTED_PROPERTY3"  "EXPORTING_TESTLIB4_2")
 checkForProperty(exp_testLib4 "EXPORTED_PROPERTY3"  "EXPORTING_TESTLIB4_2")
+checkForProperty(bld_testLibDeprecation "DEPRECATION"  "Deprecated version. Please use latest version")
+checkForProperty(exp_testLibDeprecation "DEPRECATION"  "Deprecated version. Please use latest version")
+
+# Try linking to a deprecated library
+target_link_libraries(imp_testExe1 exp_testLibDeprecation)
+
 
 # Try linking to a library imported from the install tree.
 target_link_libraries(imp_testExe1
@@ -332,7 +338,6 @@ if (APPLE OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
 else()
   if (CMAKE_CXX_COMPILER_ID MATCHES "PGI"
       OR CMAKE_CXX_COMPILER_ID MATCHES "PathScale"
-      OR CMAKE_SYSTEM_NAME MATCHES "IRIX64"
       OR CMAKE_CXX_COMPILER_ID MATCHES "Intel")
     set(run_pic_test 0)
   else()
@@ -408,7 +413,7 @@ endforeach()
 unset(_configs)
 
 if (((CMAKE_C_COMPILER_ID STREQUAL GNU AND CMAKE_C_COMPILER_VERSION VERSION_GREATER 4.4)
-    OR CMAKE_C_COMPILER_ID STREQUAL Clang)
+    OR (CMAKE_C_COMPILER_ID STREQUAL Clang AND NOT "x${CMAKE_CXX_SIMULATE_ID}" STREQUAL "xMSVC"))
     AND (CMAKE_GENERATOR STREQUAL "Unix Makefiles" OR CMAKE_GENERATOR STREQUAL "Ninja"))
   include(CheckCXXCompilerFlag)
   check_cxx_compiler_flag(-Wunused-variable run_sys_includes_test)
@@ -499,4 +504,11 @@ checkForProperty(Req::testLinkDirectories "INTERFACE_LINK_DIRECTORIES" "${CMAKE_
 if(CMAKE_GENERATOR MATCHES "Make|Ninja")
   checkForProperty(bld_testLinkDepends "INTERFACE_LINK_DEPENDS" "BUILD_LINK_DEPENDS")
   checkForProperty(Req::testLinkDepends "INTERFACE_LINK_DEPENDS" "${CMAKE_INSTALL_PREFIX}/INSTALL_LINK_DEPENDS")
+endif()
+
+#------------------------------------------------------------------------------
+# test import of CUDA language level
+if(CMake_TEST_CUDA)
+  checkForProperty(bld_cudaInterfaceLib "INTERFACE_COMPILE_FEATURES" "cuda_std_11")
+  checkForProperty(Req::cudaInterfaceLib "INTERFACE_COMPILE_FEATURES" "cuda_std_14")
 endif()

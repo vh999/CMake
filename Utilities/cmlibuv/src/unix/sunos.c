@@ -121,6 +121,7 @@ void uv__platform_invalidate_fd(uv_loop_t* loop, int fd) {
   uintptr_t nfds;
 
   assert(loop->watchers != NULL);
+  assert(fd >= 0);
 
   events = (struct port_event*) loop->watchers[loop->nwatchers];
   nfds = (uintptr_t) loop->watchers[loop->nwatchers + 1];
@@ -138,8 +139,10 @@ int uv__io_check_fd(uv_loop_t* loop, int fd) {
   if (port_associate(loop->backend_fd, PORT_SOURCE_FD, fd, POLLIN, 0))
     return UV__ERR(errno);
 
-  if (port_dissociate(loop->backend_fd, PORT_SOURCE_FD, fd))
+  if (port_dissociate(loop->backend_fd, PORT_SOURCE_FD, fd)) {
+    perror("(libuv) port_dissociate()");
     abort();
+  }
 
   return 0;
 }
@@ -155,6 +158,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   sigset_t set;
   uint64_t base;
   uint64_t diff;
+  uint64_t idle_poll;
   unsigned int nfds;
   unsigned int i;
   int saved_errno;
@@ -163,6 +167,8 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   int count;
   int err;
   int fd;
+  int user_timeout;
+  int reset_timeout;
 
   if (loop->nfds == 0) {
     assert(QUEUE_EMPTY(&loop->watcher_queue));
@@ -177,8 +183,14 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     w = QUEUE_DATA(q, uv__io_t, watcher_queue);
     assert(w->pevents != 0);
 
-    if (port_associate(loop->backend_fd, PORT_SOURCE_FD, w->fd, w->pevents, 0))
+    if (port_associate(loop->backend_fd,
+                       PORT_SOURCE_FD,
+                       w->fd,
+                       w->pevents,
+                       0)) {
+      perror("(libuv) port_associate()");
       abort();
+    }
 
     w->events = w->pevents;
   }
@@ -194,7 +206,21 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   base = loop->time;
   count = 48; /* Benchmarks suggest this gives the best throughput. */
 
+  if (uv__get_internal_fields(loop)->flags & UV_METRICS_IDLE_TIME) {
+    reset_timeout = 1;
+    user_timeout = timeout;
+    timeout = 0;
+  } else {
+    reset_timeout = 0;
+  }
+
   for (;;) {
+    /* Only need to set the provider_entry_time if timeout != 0. The function
+     * will return early if the loop isn't configured with UV_METRICS_IDLE_TIME.
+     */
+    if (timeout != 0)
+      uv__metrics_set_provider_entry_time(loop);
+
     if (timeout != -1) {
       spec.tv_sec = timeout / 1000;
       spec.tv_nsec = (timeout % 1000) * 1000000;
@@ -222,10 +248,12 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       /* Work around another kernel bug: port_getn() may return events even
        * on error.
        */
-      if (errno == EINTR || errno == ETIME)
+      if (errno == EINTR || errno == ETIME) {
         saved_errno = errno;
-      else
+      } else {
+        perror("(libuv) port_getn()");
         abort();
+      }
     }
 
     /* Update loop->time unconditionally. It's tempting to skip the update when
@@ -235,6 +263,11 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     SAVE_ERRNO(uv__update_time(loop));
 
     if (events[0].portev_source == 0) {
+      if (reset_timeout != 0) {
+        timeout = user_timeout;
+        reset_timeout = 0;
+      }
+
       if (timeout == 0)
         return;
 
@@ -275,10 +308,12 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       /* Run signal watchers last.  This also affects child process watchers
        * because those are implemented in terms of signal watchers.
        */
-      if (w == &loop->signal_io_watcher)
+      if (w == &loop->signal_io_watcher) {
         have_signals = 1;
-      else
+      } else {
+        uv__metrics_update_idle_time(loop);
         w->cb(loop, w, pe->portev_events);
+      }
 
       nevents++;
 
@@ -290,8 +325,15 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         QUEUE_INSERT_TAIL(&loop->watcher_queue, &w->watcher_queue);
     }
 
-    if (have_signals != 0)
+    if (reset_timeout != 0) {
+      timeout = user_timeout;
+      reset_timeout = 0;
+    }
+
+    if (have_signals != 0) {
+      uv__metrics_update_idle_time(loop);
       loop->signal_io_watcher.cb(loop, &loop->signal_io_watcher, POLLIN);
+    }
 
     loop->watchers[loop->nwatchers] = NULL;
     loop->watchers[loop->nwatchers + 1] = NULL;
@@ -370,6 +412,11 @@ uint64_t uv_get_free_memory(void) {
 
 uint64_t uv_get_total_memory(void) {
   return (uint64_t) sysconf(_SC_PAGESIZE) * sysconf(_SC_PHYS_PAGES);
+}
+
+
+uint64_t uv_get_constrained_memory(void) {
+  return 0;  /* Memory constraints are unknown. */
 }
 
 
@@ -684,18 +731,10 @@ int uv_cpu_info(uv_cpu_info_t** cpu_infos, int* count) {
 }
 
 
-void uv_free_cpu_info(uv_cpu_info_t* cpu_infos, int count) {
-  int i;
-
-  for (i = 0; i < count; i++) {
-    uv__free(cpu_infos[i].model);
-  }
-
-  uv__free(cpu_infos);
-}
-
 #ifdef SUNOS_NO_IFADDRS
 int uv_interface_addresses(uv_interface_address_t** addresses, int* count) {
+  *count = 0;
+  *addresses = NULL;
   return UV_ENOSYS;
 }
 #else  /* SUNOS_NO_IFADDRS */
@@ -709,13 +748,14 @@ static int uv__set_phys_addr(uv_interface_address_t* address,
 
   struct sockaddr_dl* sa_addr;
   int sockfd;
-  int i;
+  size_t i;
   struct arpreq arpreq;
 
   /* This appears to only work as root */
   sa_addr = (struct sockaddr_dl*)(ent->ifa_addr);
   memcpy(address->phys_addr, LLADDR(sa_addr), sizeof(address->phys_addr));
   for (i = 0; i < sizeof(address->phys_addr); i++) {
+    /* Check that all bytes of phys_addr are zero. */
     if (address->phys_addr[i] != 0)
       return 0;
   }
@@ -762,16 +802,22 @@ int uv_interface_addresses(uv_interface_address_t** addresses, int* count) {
   struct ifaddrs* addrs;
   struct ifaddrs* ent;
 
+  *count = 0;
+  *addresses = NULL;
+
   if (getifaddrs(&addrs))
     return UV__ERR(errno);
-
-  *count = 0;
 
   /* Count the number of interfaces */
   for (ent = addrs; ent != NULL; ent = ent->ifa_next) {
     if (uv__ifaddr_exclude(ent))
       continue;
     (*count)++;
+  }
+
+  if (*count == 0) {
+    freeifaddrs(addrs);
+    return 0;
   }
 
   *addresses = uv__malloc(*count * sizeof(**addresses));

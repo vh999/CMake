@@ -35,12 +35,14 @@ def vsflags(*args):
     return values
 
 
-def read_msbuild_xml(path, values={}):
+def read_msbuild_xml(path, values=None):
     """Reads the MS Build XML file at the path and returns its contents.
 
     Keyword arguments:
     values -- The map to append the contents to (default {})
     """
+    if values is None:
+        values = {}
 
     # Attempt to read the file contents
     try:
@@ -76,12 +78,15 @@ def read_msbuild_xml(path, values={}):
     return values
 
 
-def read_msbuild_json(path, values=[]):
+def read_msbuild_json(path, values=None):
     """Reads the MS Build JSON file at the path and returns its contents.
 
     Keyword arguments:
     values -- The list to append the contents to (default [])
     """
+    if values is None:
+        values = []
+
     if not os.path.exists(path):
         logging.info('Could not find MS Build JSON file at %s', path)
         return values
@@ -95,7 +100,6 @@ def read_msbuild_json(path, values=[]):
     logging.info('Processing MS Build JSON file at %s', path)
 
     return values
-
 
 def main():
     """Script entrypoint."""
@@ -213,6 +217,14 @@ def __find_and_remove_value(list, compare):
     return found
 
 
+def __normalize_switch(switch, separator):
+    new = switch
+    if switch.startswith("/") or switch.startswith("-"):
+      new = switch[1:]
+    if new and separator:
+      new = new + separator
+    return new
+
 ###########################################################################################
 # private xml functions
 def __convert(root, tag, values, func):
@@ -257,6 +269,8 @@ def __convert_bool(node):
     reverse_switch = __get_attribute(node, 'ReverseSwitch')
 
     if reverse_switch:
+        __with_argument(node, converted)
+
         converted_reverse = copy.deepcopy(converted)
 
         converted_reverse['switch'] = reverse_switch
@@ -303,7 +317,11 @@ def __convert_node(node, default_value='', default_flags=vsflags()):
 
     converted = {}
     converted['name'] = name
-    converted['switch'] = __get_attribute(node, 'Switch')
+
+    switch = __get_attribute(node, 'Switch')
+    separator = __get_attribute(node, 'Separator')
+    converted['switch'] = __normalize_switch(switch, separator)
+
     converted['comment'] = __get_attribute(node, 'DisplayName')
     converted['value'] = default_value
 
@@ -435,7 +453,7 @@ def __write_json_file(path, values):
 
     with open(path, 'w') as f:
         json.dump(sorted_values, f, indent=2, separators=(',', ': '))
-
+        f.write("\n")
 
 ###########################################################################################
 # private list helpers

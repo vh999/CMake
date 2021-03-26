@@ -2,8 +2,9 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmXMLWriter.h"
 
-#include "cmsys/FStream.hxx"
 #include <cassert>
+
+#include "cmsys/FStream.hxx"
 
 cmXMLWriter::cmXMLWriter(std::ostream& output, std::size_t level)
   : Output(output)
@@ -23,7 +24,7 @@ cmXMLWriter::~cmXMLWriter()
 
 void cmXMLWriter::StartDocument(const char* encoding)
 {
-  this->Output << "<?xml version=\"1.0\" encoding=\"" << encoding << "\"?>";
+  this->Output << R"(<?xml version="1.0" encoding=")" << encoding << "\"?>";
 }
 
 void cmXMLWriter::EndDocument()

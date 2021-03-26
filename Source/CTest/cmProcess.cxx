@@ -2,64 +2,28 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmProcess.h"
 
+#include <csignal>
+#include <iostream>
+#include <string>
+#include <utility>
+
+#include <cmext/algorithm>
+
+#include "cmsys/Process.h"
+
 #include "cmCTest.h"
 #include "cmCTestRunTest.h"
 #include "cmCTestTestHandler.h"
-#include "cmsys/Process.h"
-
-#include <algorithm>
-#include <fcntl.h>
-#include <iostream>
-#include <signal.h>
-#include <string>
-#if !defined(_WIN32)
-#  include <unistd.h>
+#include "cmGetPipes.h"
+#include "cmStringAlgorithms.h"
+#if defined(_WIN32)
+#  include <cm3p/kwiml/int.h>
 #endif
 
 #define CM_PROCESS_BUF_SIZE 65536
 
-#if defined(_WIN32) && !defined(__CYGWIN__)
-#  include <io.h>
-
-static int cmProcessGetPipes(int* fds)
-{
-  SECURITY_ATTRIBUTES attr;
-  HANDLE readh, writeh;
-  attr.nLength = sizeof(attr);
-  attr.lpSecurityDescriptor = nullptr;
-  attr.bInheritHandle = FALSE;
-  if (!CreatePipe(&readh, &writeh, &attr, 0))
-    return uv_translate_sys_error(GetLastError());
-  fds[0] = _open_osfhandle((intptr_t)readh, 0);
-  fds[1] = _open_osfhandle((intptr_t)writeh, 0);
-  if (fds[0] == -1 || fds[1] == -1) {
-    CloseHandle(readh);
-    CloseHandle(writeh);
-    return uv_translate_sys_error(GetLastError());
-  }
-  return 0;
-}
-#else
-#  include <errno.h>
-
-static int cmProcessGetPipes(int* fds)
-{
-  if (pipe(fds) == -1) {
-    return uv_translate_sys_error(errno);
-  }
-
-  if (fcntl(fds[0], F_SETFD, FD_CLOEXEC) == -1 ||
-      fcntl(fds[1], F_SETFD, FD_CLOEXEC) == -1) {
-    close(fds[0]);
-    close(fds[1]);
-    return uv_translate_sys_error(errno);
-  }
-  return 0;
-}
-#endif
-
-cmProcess::cmProcess(cmCTestRunTest& runner)
-  : Runner(runner)
+cmProcess::cmProcess(std::unique_ptr<cmCTestRunTest> runner)
+  : Runner(std::move(runner))
   , Conv(cmProcessOutput::UTF8, CM_PROCESS_BUF_SIZE)
 {
   this->Timeout = cmDuration::zero();
@@ -69,11 +33,9 @@ cmProcess::cmProcess(cmCTestRunTest& runner)
   this->StartTime = std::chrono::steady_clock::time_point();
 }
 
-cmProcess::~cmProcess()
-{
-}
+cmProcess::~cmProcess() = default;
 
-void cmProcess::SetCommand(const char* command)
+void cmProcess::SetCommand(std::string const& command)
 {
   this->Command = command;
 }
@@ -81,6 +43,11 @@ void cmProcess::SetCommand(const char* command)
 void cmProcess::SetCommandArguments(std::vector<std::string> const& args)
 {
   this->Arguments = args;
+}
+
+void cmProcess::SetWorkingDirectory(std::string const& dir)
+{
+  this->WorkingDirectory = dir;
 }
 
 bool cmProcess::StartProcess(uv_loop_t& loop, std::vector<size_t>* affinity)
@@ -102,7 +69,7 @@ bool cmProcess::StartProcess(uv_loop_t& loop, std::vector<size_t>* affinity)
   cm::uv_timer_ptr timer;
   int status = timer.init(loop, this);
   if (status != 0) {
-    cmCTestLog(this->Runner.GetCTest(), ERROR_MESSAGE,
+    cmCTestLog(this->Runner->GetCTest(), ERROR_MESSAGE,
                "Error initializing timer: " << uv_strerror(status)
                                             << std::endl);
     return false;
@@ -115,9 +82,9 @@ bool cmProcess::StartProcess(uv_loop_t& loop, std::vector<size_t>* affinity)
   pipe_reader.init(loop, 0, this);
 
   int fds[2] = { -1, -1 };
-  status = cmProcessGetPipes(fds);
+  status = cmGetPipes(fds);
   if (status != 0) {
-    cmCTestLog(this->Runner.GetCTest(), ERROR_MESSAGE,
+    cmCTestLog(this->Runner->GetCTest(), ERROR_MESSAGE,
                "Error initializing pipe: " << uv_strerror(status)
                                            << std::endl);
     return false;
@@ -160,7 +127,7 @@ bool cmProcess::StartProcess(uv_loop_t& loop, std::vector<size_t>* affinity)
     uv_read_start(pipe_reader, &cmProcess::OnAllocateCB, &cmProcess::OnReadCB);
 
   if (status != 0) {
-    cmCTestLog(this->Runner.GetCTest(), ERROR_MESSAGE,
+    cmCTestLog(this->Runner->GetCTest(), ERROR_MESSAGE,
                "Error starting read events: " << uv_strerror(status)
                                               << std::endl);
     return false;
@@ -168,7 +135,7 @@ bool cmProcess::StartProcess(uv_loop_t& loop, std::vector<size_t>* affinity)
 
   status = this->Process.spawn(loop, options, this);
   if (status != 0) {
-    cmCTestLog(this->Runner.GetCTest(), ERROR_MESSAGE,
+    cmCTestLog(this->Runner->GetCTest(), ERROR_MESSAGE,
                "Process not started\n " << this->Command << "\n["
                                         << uv_strerror(status) << "]\n");
     return false;
@@ -185,7 +152,7 @@ bool cmProcess::StartProcess(uv_loop_t& loop, std::vector<size_t>* affinity)
 
 void cmProcess::StartTimer()
 {
-  auto properties = this->Runner.GetTestProperties();
+  auto* properties = this->Runner->GetTestProperties();
   auto msec =
     std::chrono::duration_cast<std::chrono::milliseconds>(this->Timeout);
 
@@ -201,7 +168,7 @@ bool cmProcess::Buffer::GetLine(std::string& line)
   for (size_type sz = this->size(); this->Last != sz; ++this->Last) {
     if ((*this)[this->Last] == '\n' || (*this)[this->Last] == '\0') {
       // Extract the range first..last as a line.
-      const char* text = &*this->begin() + this->First;
+      const char* text = this->data() + this->First;
       size_type length = this->Last - this->First;
       while (length && text[length - 1] == '\r') {
         length--;
@@ -210,7 +177,7 @@ bool cmProcess::Buffer::GetLine(std::string& line)
 
       // Start a new range for the next line.
       ++this->Last;
-      this->First = Last;
+      this->First = this->Last;
 
       // Return the line extracted.
       return true;
@@ -231,7 +198,7 @@ bool cmProcess::Buffer::GetLast(std::string& line)
 {
   // Return the partial last line, if any.
   if (!this->empty()) {
-    line.assign(&*this->begin(), this->size());
+    line.assign(this->data(), this->size());
     this->First = this->Last = 0;
     this->clear();
     return true;
@@ -242,7 +209,7 @@ bool cmProcess::Buffer::GetLast(std::string& line)
 void cmProcess::OnReadCB(uv_stream_t* stream, ssize_t nread,
                          const uv_buf_t* buf)
 {
-  auto self = static_cast<cmProcess*>(stream->data);
+  auto* self = static_cast<cmProcess*>(stream->data);
   self->OnRead(nread, buf);
 }
 
@@ -252,10 +219,10 @@ void cmProcess::OnRead(ssize_t nread, const uv_buf_t* buf)
   if (nread > 0) {
     std::string strdata;
     this->Conv.DecodeText(buf->base, static_cast<size_t>(nread), strdata);
-    this->Output.insert(this->Output.end(), strdata.begin(), strdata.end());
+    cm::append(this->Output, strdata);
 
     while (this->Output.GetLine(line)) {
-      this->Runner.CheckOutput(line);
+      this->Runner->CheckOutput(line);
       line.clear();
     }
 
@@ -269,27 +236,27 @@ void cmProcess::OnRead(ssize_t nread, const uv_buf_t* buf)
   // The process will provide no more data.
   if (nread != UV_EOF) {
     auto error = static_cast<int>(nread);
-    cmCTestLog(this->Runner.GetCTest(), ERROR_MESSAGE,
+    cmCTestLog(this->Runner->GetCTest(), ERROR_MESSAGE,
                "Error reading stream: " << uv_strerror(error) << std::endl);
   }
 
   // Look for partial last lines.
   if (this->Output.GetLast(line)) {
-    this->Runner.CheckOutput(line);
+    this->Runner->CheckOutput(line);
   }
 
   this->ReadHandleClosed = true;
   this->PipeReader.reset();
   if (this->ProcessHandleClosed) {
     uv_timer_stop(this->Timer);
-    this->Runner.FinalizeTest();
+    this->Finish();
   }
 }
 
 void cmProcess::OnAllocateCB(uv_handle_t* handle, size_t suggested_size,
                              uv_buf_t* buf)
 {
-  auto self = static_cast<cmProcess*>(handle->data);
+  auto* self = static_cast<cmProcess*>(handle->data);
   self->OnAllocate(suggested_size, buf);
 }
 
@@ -305,15 +272,12 @@ void cmProcess::OnAllocate(size_t /*suggested_size*/, uv_buf_t* buf)
 
 void cmProcess::OnTimeoutCB(uv_timer_t* timer)
 {
-  auto self = static_cast<cmProcess*>(timer->data);
+  auto* self = static_cast<cmProcess*>(timer->data);
   self->OnTimeout();
 }
 
 void cmProcess::OnTimeout()
 {
-  if (this->ProcessState != cmProcess::State::Executing) {
-    return;
-  }
   this->ProcessState = cmProcess::State::Expired;
   bool const was_still_reading = !this->ReadHandleClosed;
   if (!this->ReadHandleClosed) {
@@ -327,14 +291,14 @@ void cmProcess::OnTimeout()
     // Our on-exit handler already ran but did not finish the test
     // because we were still reading output.  We've just dropped
     // our read handler, so we need to finish the test now.
-    this->Runner.FinalizeTest();
+    this->Finish();
   }
 }
 
 void cmProcess::OnExitCB(uv_process_t* process, int64_t exit_status,
                          int term_signal)
 {
-  auto self = static_cast<cmProcess*>(process->data);
+  auto* self = static_cast<cmProcess*>(process->data);
   self->OnExit(exit_status, term_signal);
 }
 
@@ -355,8 +319,18 @@ void cmProcess::OnExit(int64_t exit_status, int term_signal)
   }
 
   // Record exit information.
-  this->ExitValue = static_cast<int>(exit_status);
+  this->ExitValue = exit_status;
   this->Signal = term_signal;
+
+  this->ProcessHandleClosed = true;
+  if (this->ReadHandleClosed) {
+    uv_timer_stop(this->Timer);
+    this->Finish();
+  }
+}
+
+void cmProcess::Finish()
+{
   this->TotalTime = std::chrono::steady_clock::now() - this->StartTime;
   // Because of a processor clock scew the runtime may become slightly
   // negative. If someone changed the system clock while the process was
@@ -365,12 +339,7 @@ void cmProcess::OnExit(int64_t exit_status, int term_signal)
   if (this->TotalTime <= cmDuration::zero()) {
     this->TotalTime = cmDuration::zero();
   }
-
-  this->ProcessHandleClosed = true;
-  if (this->ReadHandleClosed) {
-    uv_timer_stop(this->Timer);
-    this->Runner.FinalizeTest();
-  }
+  this->Runner->FinalizeTest();
 }
 
 cmProcess::State cmProcess::GetProcessStatus()
@@ -389,7 +358,7 @@ void cmProcess::ResetStartTime()
   this->StartTime = std::chrono::steady_clock::now();
 }
 
-cmProcess::Exception cmProcess::GetExitException()
+cmProcess::Exception cmProcess::GetExitException() const
 {
   auto exception = Exception::None;
 #if defined(_WIN32) && !defined(__CYGWIN__)
@@ -461,7 +430,7 @@ cmProcess::Exception cmProcess::GetExitException()
   return exception;
 }
 
-std::string cmProcess::GetExitExceptionString()
+std::string cmProcess::GetExitExceptionString() const
 {
   std::string exception_str;
 #if defined(_WIN32)
@@ -541,7 +510,8 @@ std::string cmProcess::GetExitExceptionString()
     case STATUS_NO_MEMORY:
     default:
       char buf[1024];
-      _snprintf(buf, 1024, "Exit code 0x%x\n", this->ExitValue);
+      const char* fmt = "Exit code 0x%" KWIML_INT_PRIx64 "\n";
+      _snprintf(buf, 1024, fmt, this->ExitValue);
       exception_str.assign(buf);
   }
 #else
@@ -575,17 +545,17 @@ std::string cmProcess::GetExitExceptionString()
 #  endif
 #  ifdef SIGABRT
     case SIGABRT:
-      exception_str = "Child aborted";
+      exception_str = "Subprocess aborted";
       break;
 #  endif
 #  ifdef SIGKILL
     case SIGKILL:
-      exception_str = "Child killed";
+      exception_str = "Subprocess killed";
       break;
 #  endif
 #  ifdef SIGTERM
     case SIGTERM:
-      exception_str = "Child terminated";
+      exception_str = "Subprocess terminated";
       break;
 #  endif
 #  ifdef SIGHUP
@@ -729,8 +699,7 @@ std::string cmProcess::GetExitExceptionString()
 #    endif
 #  endif
     default:
-      exception_str = "Signal ";
-      exception_str += std::to_string(this->Signal);
+      exception_str = cmStrCat("Signal ", this->Signal);
   }
 #endif
   return exception_str;

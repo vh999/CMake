@@ -1,7 +1,6 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef QCMakeWidgets_h
-#define QCMakeWidgets_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
@@ -18,7 +17,7 @@ class QCMakeFileEditor : public QLineEdit
 {
   Q_OBJECT
 public:
-  QCMakeFileEditor(QWidget* p, const QString& var);
+  QCMakeFileEditor(QWidget* p, QString var);
 protected slots:
   virtual void chooseFile() = 0;
 signals:
@@ -77,5 +76,3 @@ public:
     }
   }
 };
-
-#endif

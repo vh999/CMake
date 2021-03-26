@@ -1,12 +1,14 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmQtAutoGen_h
-#define cmQtAutoGen_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
+#include <memory>
 #include <string>
 #include <vector>
+
+#include <cm/string_view>
 
 /** \class cmQtAutoGen
  * \brief Common base class for QtAutoGen classes
@@ -14,21 +16,7 @@
 class cmQtAutoGen
 {
 public:
-  /// @brief Nested lists separator
-  static std::string const ListSep;
-  /// @brief Maximum number of parallel threads/processes in a generator
-  static unsigned int const ParallelMax;
-
-  /// @brief AutoGen generator type
-  enum class GeneratorT
-  {
-    GEN, // General
-    MOC,
-    UIC,
-    RCC
-  };
-
-  /// @brief Integer version
+  /** Integer version.  */
   struct IntegerVersion
   {
     unsigned int Major = 0;
@@ -41,36 +29,66 @@ public:
     {
     }
 
-    bool operator>(IntegerVersion const version)
+    bool operator>(IntegerVersion const version) const
     {
       return (this->Major > version.Major) ||
         ((this->Major == version.Major) && (this->Minor > version.Minor));
     }
 
-    bool operator>=(IntegerVersion const version)
+    bool operator>=(IntegerVersion const version) const
     {
       return (this->Major > version.Major) ||
         ((this->Major == version.Major) && (this->Minor >= version.Minor));
     }
   };
 
-public:
+  /** Compiler features.  */
+  class CompilerFeatures
+  {
+  public:
+    bool Evaluated = false;
+    std::string HelpOutput;
+    std::vector<std::string> ListOptions;
+  };
+  using CompilerFeaturesHandle = std::shared_ptr<CompilerFeatures>;
+
+  /** AutoGen generator type.  */
+  enum class GenT
+  {
+    GEN, // AUTOGEN
+    MOC, // AUTOMOC
+    UIC, // AUTOUIC
+    RCC  // AUTORCC
+  };
+
+  /// @brief Maximum number of parallel threads/processes in a generator
+  static unsigned int const ParallelMax;
+
   /// @brief Returns the generator name
-  static std::string const& GeneratorName(GeneratorT genType);
+  static cm::string_view GeneratorName(GenT genType);
   /// @brief Returns the generator name in upper case
-  static std::string GeneratorNameUpper(GeneratorT genType);
+  static cm::string_view GeneratorNameUpper(GenT genType);
+
+  /// @brief Returns a string with the requested tool names
+  static std::string Tools(bool moc, bool uic, bool rcc);
 
   /// @brief Returns the string escaped and enclosed in quotes
-  static std::string Quoted(std::string const& text);
+  static std::string Quoted(cm::string_view text);
 
   static std::string QuotedCommand(std::vector<std::string> const& command);
 
+  /// @brief Returns the file name without path and extension (thread safe)
+  static std::string FileNameWithoutLastExtension(cm::string_view filename);
+
+  /// @brief Returns the parent directory of the file (thread safe)
+  static std::string ParentDir(cm::string_view filename);
+
   /// @brief Returns the parent directory of the file with a "/" suffix
-  static std::string SubDirPrefix(std::string const& filename);
+  static std::string SubDirPrefix(cm::string_view filename);
 
   /// @brief Appends the suffix to the filename before the last dot
-  static std::string AppendFilenameSuffix(std::string const& filename,
-                                          std::string const& suffix);
+  static std::string AppendFilenameSuffix(cm::string_view filename,
+                                          cm::string_view suffix);
 
   /// @brief Merges newOpts into baseOpts
   static void UicMergeOptions(std::vector<std::string>& baseOpts,
@@ -82,21 +100,42 @@ public:
                               std::vector<std::string> const& newOpts,
                               bool isQt5);
 
-  /// @brief Parses the content of a qrc file
-  ///
-  /// Use when rcc does not support the "--list" option
-  static void RccListParseContent(std::string const& content,
-                                  std::vector<std::string>& files);
+  /** @class RccLister
+   * @brief Lists files in qrc resource files
+   */
+  class RccLister
+  {
+  public:
+    RccLister();
+    RccLister(std::string rccExecutable, std::vector<std::string> listOptions);
 
-  /// @brief Parses the output of the "rcc --list ..." command
-  static bool RccListParseOutput(std::string const& rccStdOut,
-                                 std::string const& rccStdErr,
-                                 std::vector<std::string>& files,
-                                 std::string& error);
+    //! The rcc executable
+    std::string const& RccExcutable() const { return this->RccExcutable_; }
+    void SetRccExecutable(std::string const& rccExecutable)
+    {
+      this->RccExcutable_ = rccExecutable;
+    }
 
-  /// @brief Converts relative qrc entry paths to full paths
-  static void RccListConvertFullPath(std::string const& qrcFileDir,
-                                     std::vector<std::string>& files);
+    //! The rcc executable list options
+    std::vector<std::string> const& ListOptions() const
+    {
+      return this->ListOptions_;
+    }
+    void SetListOptions(std::vector<std::string> const& listOptions)
+    {
+      this->ListOptions_ = listOptions;
+    }
+
+    /**
+     * @brief Lists a files in the qrcFile
+     * @arg files The file names are appended to this list
+     * @arg error contains the error message when the function fails
+     */
+    bool list(std::string const& qrcFile, std::vector<std::string>& files,
+              std::string& error, bool verbose = false) const;
+
+  private:
+    std::string RccExcutable_;
+    std::vector<std::string> ListOptions_;
+  };
 };
-
-#endif

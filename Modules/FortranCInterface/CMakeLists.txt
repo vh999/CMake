@@ -15,11 +15,11 @@ int main() { return 0; }
 # List manglings of global symbol names to try.
 set(global_symbols
   my_sub    # VisualAge
-  my_sub_   # GNU, Intel, HP, SunPro, MIPSpro, PGI
+  my_sub_   # GNU, Intel, HP, SunPro, PGI
   my_sub__  # GNU g77
   MY_SUB    # Intel on Windows
   mysub     # VisualAge
-  mysub_    # GNU, Intel, HP, SunPro, MIPSpro, PGI
+  mysub_    # GNU, Intel, HP, SunPro, PGI
   MYSUB     # Intel on Windows
   ${FortranCInterface_GLOBAL_SYMBOLS}
   )
@@ -48,7 +48,6 @@ set(module_symbols
 list(REMOVE_DUPLICATES module_symbols)
 
 # Note that some compiler manglings cannot be invoked from C:
-#   MIPSpro uses "MY_SUB.in.MY_MODULE"
 #   SunPro uses "my_module.my_sub_"
 #   PathScale uses "MY_SUB.in.MY_MODULE"
 
@@ -102,3 +101,7 @@ set_property(TARGET symbols PROPERTY POSITION_INDEPENDENT_CODE 1)
 # Require symbols through Fortran.
 add_executable(FortranCInterface main.F call_sub.f ${call_mod})
 target_link_libraries(FortranCInterface PUBLIC symbols)
+
+file(GENERATE OUTPUT exe-$<CONFIG>.cmake CONTENT [[
+set(FortranCInterface_EXE "$<TARGET_FILE:FortranCInterface>")
+]])

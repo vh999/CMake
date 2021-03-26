@@ -1,7 +1,6 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef _cmDocumentationFormatter_h
-#define _cmDocumentationFormatter_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
@@ -59,8 +58,6 @@ public:
   void SetIndent(const char* indent);
 
 private:
-  int TextWidth;
-  const char* TextIndent;
+  int TextWidth = 77;
+  const char* TextIndent = "";
 };
-
-#endif

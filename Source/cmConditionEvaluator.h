@@ -1,7 +1,6 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmConditionEvaluator_h
-#define cmConditionEvaluator_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
@@ -11,32 +10,31 @@
 
 #include "cmExpandedCommandArgument.h"
 #include "cmListFileCache.h"
+#include "cmMessageType.h"
 #include "cmPolicies.h"
-#include "cmake.h"
+#include "cmProperty.h"
 
 class cmMakefile;
 
 class cmConditionEvaluator
 {
 public:
-  typedef std::list<cmExpandedCommandArgument> cmArgumentList;
+  using cmArgumentList = std::list<cmExpandedCommandArgument>;
 
-  cmConditionEvaluator(cmMakefile& makefile, cmListFileContext const& context,
-                       cmListFileBacktrace const& bt);
+  cmConditionEvaluator(cmMakefile& makefile, cmListFileBacktrace bt);
 
   // this is a shared function for both If and Else to determine if the
   // arguments were valid, and if so, was the response true. If there is
   // an error, the errorString will be set.
   bool IsTrue(const std::vector<cmExpandedCommandArgument>& args,
-              std::string& errorString, cmake::MessageType& status);
+              std::string& errorString, MessageType& status);
 
 private:
   // Filter the given variable definition based on policy CMP0054.
-  const char* GetDefinitionIfUnquoted(
+  cmProp GetDefinitionIfUnquoted(
     const cmExpandedCommandArgument& argument) const;
 
-  const char* GetVariableOrString(
-    const cmExpandedCommandArgument& argument) const;
+  cmProp GetVariableOrString(const cmExpandedCommandArgument& argument) const;
 
   bool IsKeyword(std::string const& keyword,
                  cmExpandedCommandArgument& argument) const;
@@ -48,7 +46,7 @@ private:
 
   bool GetBooleanValueWithAutoDereference(cmExpandedCommandArgument& newArg,
                                           std::string& errorString,
-                                          cmake::MessageType& status,
+                                          MessageType& status,
                                           bool oneArg = false) const;
 
   void IncrementArguments(cmArgumentList& newArgs,
@@ -66,27 +64,23 @@ private:
                       cmArgumentList::iterator& argP2);
 
   bool HandleLevel0(cmArgumentList& newArgs, std::string& errorString,
-                    cmake::MessageType& status);
+                    MessageType& status);
 
-  bool HandleLevel1(cmArgumentList& newArgs, std::string&,
-                    cmake::MessageType&);
+  bool HandleLevel1(cmArgumentList& newArgs, std::string&, MessageType&);
 
   bool HandleLevel2(cmArgumentList& newArgs, std::string& errorString,
-                    cmake::MessageType& status);
+                    MessageType& status);
 
   bool HandleLevel3(cmArgumentList& newArgs, std::string& errorString,
-                    cmake::MessageType& status);
+                    MessageType& status);
 
   bool HandleLevel4(cmArgumentList& newArgs, std::string& errorString,
-                    cmake::MessageType& status);
+                    MessageType& status);
 
   cmMakefile& Makefile;
-  cmListFileContext ExecutionContext;
   cmListFileBacktrace Backtrace;
   cmPolicies::PolicyStatus Policy12Status;
   cmPolicies::PolicyStatus Policy54Status;
   cmPolicies::PolicyStatus Policy57Status;
   cmPolicies::PolicyStatus Policy64Status;
 };
-
-#endif

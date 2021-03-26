@@ -1,7 +1,8 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmGlobalVisualStudio9Generator_h
-#define cmGlobalVisualStudio9Generator_h
+#pragma once
+
+#include <memory>
 
 #include "cmGlobalVisualStudio8Generator.h"
 
@@ -13,15 +14,7 @@
 class cmGlobalVisualStudio9Generator : public cmGlobalVisualStudio8Generator
 {
 public:
-  cmGlobalVisualStudio9Generator(cmake* cm, const std::string& name,
-                                 const std::string& platformName);
-  static cmGlobalGeneratorFactory* NewFactory();
-
-  /**
-   * Try to determine system information such as shared library
-   * extension, pthreads, byte order etc.
-   */
-  void WriteSLNHeader(std::ostream& fout) override;
+  static std::unique_ptr<cmGlobalGeneratorFactory> NewFactory();
 
   /**
    * Where does this version of Visual Studio look for macros for the
@@ -37,10 +30,10 @@ public:
   std::string GetUserMacrosRegKeyBase() override;
 
 protected:
-  const char* GetIDEVersion() override { return "9.0"; }
+  cmGlobalVisualStudio9Generator(cmake* cm, const std::string& name,
+                                 std::string const& platformInGeneratorName);
 
 private:
   class Factory;
   friend class Factory;
 };
-#endif

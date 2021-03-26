@@ -22,9 +22,9 @@ source files, directories, tests or cache entries.  Exactly one of the
 scope keywords must be used.  Example::
 
   cmake_print_properties(TARGETS foo bar PROPERTIES
-                         LOCATION INTERFACE_INCLUDE_DIRS)
+                         LOCATION INTERFACE_INCLUDE_DIRECTORIES)
 
-This will print the LOCATION and INTERFACE_INCLUDE_DIRS properties for
+This will print the LOCATION and INTERFACE_INCLUDE_DIRECTORIES properties for
 both targets foo and bar.
 
 ::
@@ -42,14 +42,14 @@ Gives::
 #]=======================================================================]
 
 function(cmake_print_variables)
-   set(msg "")
-   foreach(var ${ARGN})
-      if(msg)
-         string(APPEND msg " ; ")
-      endif()
-      string(APPEND msg "${var}=\"${${var}}\"")
-   endforeach()
-   message(STATUS "${msg}")
+  set(msg "")
+  foreach(var ${ARGN})
+    if(msg)
+      string(APPEND msg " ; ")
+    endif()
+    string(APPEND msg "${var}=\"${${var}}\"")
+  endforeach()
+  message(STATUS "${msg}")
 endfunction()
 
 
@@ -101,7 +101,10 @@ function(cmake_print_properties)
   if(CPP_CACHE_ENTRIES)
     set(items ${CPP_CACHE_ENTRIES})
     set(mode ${mode} CACHE_ENTRIES)
-    set(keyword CACHE)
+    # This is a workaround for the fact that passing `CACHE` as an argument to
+    # set() causes a cache variable to be set.
+    set(keyword "")
+    string(APPEND keyword CACHE)
   endif()
 
   if(NOT mode)

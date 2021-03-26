@@ -1,7 +1,15 @@
 CPack FreeBSD Generator
 -----------------------
 
+.. versionadded:: 3.10
+
 The built in (binary) CPack FreeBSD (pkg) generator (Unix only)
+
+Variables affecting the CPack FreeBSD (pkg) generator
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- .. versionadded:: 3.18
+    :variable:`CPACK_ARCHIVE_THREADS`
 
 Variables specific to CPack FreeBSD (pkg) generator
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -20,7 +28,7 @@ The CPack FreeBSD generator should work on any host with libpkg installed. The
 packages it produces are specific to the host architecture and ABI.
 
 The CPack FreeBSD generator sets package-metadata through
-:code:`CPACK_FREEBSD_XXX` variables. The CPack FreeBSD generator, unlike the
+``CPACK_FREEBSD_XXX`` variables. The CPack FreeBSD generator, unlike the
 CPack Deb generator, does not specially support componentized packages; a
 single package is created from all the software artifacts created through
 CMake.
@@ -80,6 +88,9 @@ the RPM information (e.g. package license).
    - :variable:`CMAKE_PROJECT_HOMEPAGE_URL`, or if that is not set,
      :variable:`CPACK_DEBIAN_PACKAGE_HOMEPAGE` (this may be set already
      for Debian packaging, so we may as well re-use it).
+
+  .. versionadded:: 3.12
+    The ``CMAKE_PROJECT_HOMEPAGE_URL`` variable.
 
 .. variable:: CPACK_FREEBSD_PACKAGE_LICENSE
 

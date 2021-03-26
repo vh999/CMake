@@ -1,26 +1,27 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmXMLWiter_h
-#define cmXMLWiter_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmXMLSafe.h"
-
 #include <chrono>
+#include <cstddef> // IWYU pragma: keep
 #include <ctime>
 #include <ostream>
 #include <stack>
 #include <string>
 #include <vector>
 
+#include "cmXMLSafe.h"
+
 class cmXMLWriter
 {
-  CM_DISABLE_COPY(cmXMLWriter)
-
 public:
   cmXMLWriter(std::ostream& output, std::size_t level = 0);
   ~cmXMLWriter();
+
+  cmXMLWriter(cmXMLWriter const&) = delete;
+  cmXMLWriter& operator=(cmXMLWriter const&) = delete;
 
   void StartDocument(const char* encoding = "UTF-8");
   void EndDocument();
@@ -74,15 +75,11 @@ private:
 
   void CloseStartElement();
 
-private:
-  static cmXMLSafe SafeAttribute(const char* value)
-  {
-    return cmXMLSafe(value);
-  }
+  static cmXMLSafe SafeAttribute(const char* value) { return { value }; }
 
   static cmXMLSafe SafeAttribute(std::string const& value)
   {
-    return cmXMLSafe(value);
+    return { value };
   }
 
   template <typename T>
@@ -123,7 +120,6 @@ private:
     return value;
   }
 
-private:
   std::ostream& Output;
   std::stack<std::string, std::vector<std::string>> Elements;
   std::string IndentationElement;
@@ -142,9 +138,11 @@ public:
   cmXMLDocument(cmXMLWriter& xml)
     : xmlwr(xml)
   {
-    xmlwr.StartDocument();
+    this->xmlwr.StartDocument();
   }
-  ~cmXMLDocument() { xmlwr.EndDocument(); }
+  ~cmXMLDocument() { this->xmlwr.EndDocument(); }
+  cmXMLDocument(const cmXMLDocument&) = delete;
+  cmXMLDocument& operator=(const cmXMLDocument&) = delete;
 
 private:
   friend class cmXMLElement;
@@ -157,40 +155,41 @@ public:
   cmXMLElement(cmXMLWriter& xml, const char* tag)
     : xmlwr(xml)
   {
-    xmlwr.StartElement(tag);
+    this->xmlwr.StartElement(tag);
   }
   cmXMLElement(cmXMLElement& par, const char* tag)
     : xmlwr(par.xmlwr)
   {
-    xmlwr.StartElement(tag);
+    this->xmlwr.StartElement(tag);
   }
   cmXMLElement(cmXMLDocument& doc, const char* tag)
     : xmlwr(doc.xmlwr)
   {
-    xmlwr.StartElement(tag);
+    this->xmlwr.StartElement(tag);
   }
-  ~cmXMLElement() { xmlwr.EndElement(); }
+  ~cmXMLElement() { this->xmlwr.EndElement(); }
+
+  cmXMLElement(const cmXMLElement&) = delete;
+  cmXMLElement& operator=(const cmXMLElement&) = delete;
 
   template <typename T>
   cmXMLElement& Attribute(const char* name, T const& value)
   {
-    xmlwr.Attribute(name, value);
+    this->xmlwr.Attribute(name, value);
     return *this;
   }
   template <typename T>
   void Content(T const& content)
   {
-    xmlwr.Content(content);
+    this->xmlwr.Content(content);
   }
   template <typename T>
   void Element(std::string const& name, T const& value)
   {
-    xmlwr.Element(name, value);
+    this->xmlwr.Element(name, value);
   }
-  void Comment(const char* comment) { xmlwr.Comment(comment); }
+  void Comment(const char* comment) { this->xmlwr.Comment(comment); }
 
 private:
   cmXMLWriter& xmlwr;
 };
-
-#endif

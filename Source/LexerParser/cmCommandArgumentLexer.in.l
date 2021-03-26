@@ -7,7 +7,7 @@ This file must be translated to C++ and modified to build everywhere.
 
 Run flex >= 2.6 like this:
 
-  flex --nounistd -DFLEXINT_H --noline --header-file=cmCommandArgumentLexer.h -ocmCommandArgumentLexer.cxx cmCommandArgumentLexer.in.l
+  flex --nounistd --never-interactive --batch -DFLEXINT_H --noline --header-file=cmCommandArgumentLexer.h -ocmCommandArgumentLexer.cxx cmCommandArgumentLexer.in.l
 
 Modify cmCommandArgumentLexer.cxx:
   - remove trailing whitespace:              sed -i 's/\s*$//' cmCommandArgumentLexer.h cmCommandArgumentLexer.cxx
@@ -18,12 +18,11 @@ Modify cmCommandArgumentLexer.cxx:
 
 /* IWYU pragma: no_forward_declare yyguts_t */
 
+#ifndef __clang_analyzer__ /* Suppress clang scan-build warnings */
+
 #include "cmCommandArgumentParserHelper.h"
 
-/* Replace the lexer input function.  */
-#undef YY_INPUT
-#define YY_INPUT(buf, result, max_size) \
-  { result = yyextra->LexInput(buf, max_size); }
+#define YY_USER_ACTION  yyextra->UpdateInputPosition(yyleng);
 
 /* Include the set of tokens from the parser.  */
 #include "cmCommandArgumentParserTokens.h"
@@ -145,3 +144,5 @@ void cmCommandArgument_SetupEscapes(yyscan_t yyscanner, bool noEscapes)
     BEGIN(ESCAPES);
   }
 }
+
+#endif /* __clang_analyzer__ */

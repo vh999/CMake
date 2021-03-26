@@ -7,15 +7,13 @@ This file must be translated to C and modified to build everywhere.
 
 Run bison like this:
 
-  bison --yacc --name-prefix=cmDependsJava_yy --defines=cmDependsJavaParserTokens.h -ocmDependsJavaParser.cxx cmDependsJavaParser.y
-
-Modify cmDependsJavaParser.cxx:
-  - "#if 0" out yyerrorlab block in range ["goto yyerrlab1", "yyerrlab1:"]
+  bison --name-prefix=cmDependsJava_yy --defines=cmDependsJavaParserTokens.h -ocmDependsJavaParser.cxx cmDependsJavaParser.y
 
 */
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <string>
@@ -25,7 +23,6 @@ Modify cmDependsJavaParser.cxx:
 /*-------------------------------------------------------------------------*/
 #include "cmDependsJavaParserHelper.h" /* Interface to parser object.  */
 #include "cmDependsJavaLexer.h"  /* Interface to lexer object.  */
-#include "cmDependsJavaParserTokens.h" /* Need YYSTYPE for YY_DECL.  */
 
 /* Forward declare the lexer entry point.  */
 YY_DECL;
@@ -36,7 +33,7 @@ static void cmDependsJava_yyerror(yyscan_t yyscanner, const char* message);
 #define YYMAXDEPTH 1000000
 
 
-#define jpCheckEmpty(cnt) yyGetParser->CheckEmpty(__LINE__, cnt, yyvsp);
+#define jpCheckEmpty(cnt) yyGetParser->CheckEmpty(__LINE__, cnt, yyvsp)
 #define jpElementStart(cnt) yyGetParser->PrepareElement(&yyval)
 #define jpStoreClass(str) yyGetParser->AddClassFound(str); yyGetParser->DeallocateParserType(&(str))
 /* Disable some warnings in the generated code.  */
@@ -46,6 +43,7 @@ static void cmDependsJava_yyerror(yyscan_t yyscanner, const char* message);
 #endif
 #if defined(__GNUC__) && __GNUC__ >= 8
 # pragma GCC diagnostic ignored "-Wconversion"
+# pragma GCC diagnostic ignored "-Wfree-nonheap-object"
 #endif
 %}
 

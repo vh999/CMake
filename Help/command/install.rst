@@ -9,19 +9,24 @@ Synopsis
 .. parsed-literal::
 
   install(`TARGETS`_ <target>... [...])
-  install({`FILES`_ | `PROGRAMS`_} <file>... [DESTINATION <dir>] [...])
-  install(`DIRECTORY`_ <dir>... [DESTINATION <dir>] [...])
+  install({`FILES`_ | `PROGRAMS`_} <file>... [...])
+  install(`DIRECTORY`_ <dir>... [...])
   install(`SCRIPT`_ <file> [...])
   install(`CODE`_ <code> [...])
-  install(`EXPORT`_ <export-name> DESTINATION <dir> [...])
+  install(`EXPORT`_ <export-name> [...])
 
 Introduction
 ^^^^^^^^^^^^
 
-This command generates installation rules for a project.  Rules
-specified by calls to this command within a source directory are
-executed in order during installation.  The order across directories
-is not defined.
+This command generates installation rules for a project.  Install rules
+specified by calls to the ``install()`` command within a source directory
+are executed in order during installation.
+
+.. versionchanged:: 3.14
+  Install rules in subdirectories
+  added by calls to the :command:`add_subdirectory` command are interleaved
+  with those in the parent directory to run in the order declared (see
+  policy :policy:`CMP0082`).
 
 There are multiple signatures for this command.  Some of them define
 installation options for files and targets.  Options common to
@@ -30,12 +35,22 @@ signatures that specify them.  The common options are:
 
 ``DESTINATION``
   Specify the directory on disk to which a file will be installed.
-  If a full path (with a leading slash or drive letter) is given
-  it is used directly.  If a relative path is given it is interpreted
-  relative to the value of the :variable:`CMAKE_INSTALL_PREFIX` variable.
+  Arguments can be relative or absolute paths.
+
+  If a relative path is given it is interpreted relative to the value
+  of the :variable:`CMAKE_INSTALL_PREFIX` variable.
   The prefix can be relocated at install time using the ``DESTDIR``
   mechanism explained in the :variable:`CMAKE_INSTALL_PREFIX` variable
   documentation.
+
+  If an absolute path (with a leading slash or drive letter) is given
+  it is used verbatim.
+
+  As absolute paths are not supported by :manual:`cpack <cpack(1)>` installer
+  generators, it is preferable to use relative paths throughout.
+  In particular, there is no need to make paths absolute by prepending
+  :variable:`CMAKE_INSTALL_PREFIX`; this prefix is used by default if
+  the DESTINATION is a relative path.
 
 ``PERMISSIONS``
   Specify permissions for installed files.  Valid permissions are
@@ -73,6 +88,8 @@ signatures that specify them.  The common options are:
   :variable:`CMAKE_INSTALL_DEFAULT_COMPONENT_NAME` variable.
 
 ``EXCLUDE_FROM_ALL``
+  .. versionadded:: 3.6
+
   Specify that the file is excluded from a full installation and only
   installed as part of a component-specific installation
 
@@ -85,20 +102,23 @@ signatures that specify them.  The common options are:
   Specify that it is not an error if the file to be installed does
   not exist.
 
-Command signatures that install files may print messages during
-installation.  Use the :variable:`CMAKE_INSTALL_MESSAGE` variable
-to control which messages are printed.
+.. versionadded:: 3.1
+  Command signatures that install files may print messages during
+  installation.  Use the :variable:`CMAKE_INSTALL_MESSAGE` variable
+  to control which messages are printed.
 
-Many of the ``install()`` variants implicitly create the directories
-containing the installed files. If
-:variable:`CMAKE_INSTALL_DEFAULT_DIRECTORY_PERMISSIONS` is set, these
-directories will be created with the permissions specified. Otherwise,
-they will be created according to the uname rules on Unix-like platforms.
-Windows platforms are unaffected.
+.. versionadded:: 3.11
+  Many of the ``install()`` variants implicitly create the directories
+  containing the installed files. If
+  :variable:`CMAKE_INSTALL_DEFAULT_DIRECTORY_PERMISSIONS` is set, these
+  directories will be created with the permissions specified. Otherwise,
+  they will be created according to the uname rules on Unix-like platforms.
+  Windows platforms are unaffected.
 
 Installing Targets
 ^^^^^^^^^^^^^^^^^^
 
+.. _`install(TARGETS)`:
 .. _TARGETS:
 
 .. code-block:: cmake
@@ -118,42 +138,53 @@ Installing Targets
           )
 
 The ``TARGETS`` form specifies rules for installing targets from a
-project.  There are several kinds of target files that may be installed:
+project.  There are several kinds of target :ref:`Output Artifacts`
+that may be installed:
 
 ``ARCHIVE``
-  Static libraries are treated as ``ARCHIVE`` targets, except those
-  marked with the ``FRAMEWORK`` property on macOS (see ``FRAMEWORK``
-  below.) For DLL platforms (all Windows-based systems including
-  Cygwin), the DLL import library is treated as an ``ARCHIVE`` target.
+  Target artifacts of this kind include:
+
+  * *Static libraries*
+    (except on macOS when marked as ``FRAMEWORK``, see below);
+  * *DLL import libraries*
+    (on all Windows-based systems including Cygwin; they have extension
+    ``.lib``, in contrast to the ``.dll`` libraries that go to ``RUNTIME``);
+  * On AIX, the *linker import file* created for executables with
+    :prop_tgt:`ENABLE_EXPORTS` enabled.
 
 ``LIBRARY``
-  Module libraries are always treated as ``LIBRARY`` targets. For non-
-  DLL platforms shared libraries are treated as ``LIBRARY`` targets,
-  except those marked with the ``FRAMEWORK`` property on macOS (see
-  ``FRAMEWORK`` below.)
+  Target artifacts of this kind include:
+
+  * *Shared libraries*, except
+
+    - DLLs (these go to ``RUNTIME``, see below),
+    - on macOS when marked as ``FRAMEWORK`` (see below).
 
 ``RUNTIME``
-  Executables are treated as ``RUNTIME`` objects, except those marked
-  with the ``MACOSX_BUNDLE`` property on macOS (see ``BUNDLE`` below.)
-  For DLL platforms (all Windows-based systems including Cygwin), the
-  DLL part of a shared library is treated as a ``RUNTIME`` target.
+  Target artifacts of this kind include:
+
+  * *Executables*
+    (except on macOS when marked as ``MACOSX_BUNDLE``, see ``BUNDLE`` below);
+  * DLLs (on all Windows-based systems including Cygwin; note that the
+    accompanying import libraries are of kind ``ARCHIVE``).
 
 ``OBJECTS``
-  Object libraries (a simple group of object files) are always treated
-  as ``OBJECTS`` targets.
+  .. versionadded:: 3.9
+
+  Object files associated with *object libraries*.
 
 ``FRAMEWORK``
   Both static and shared libraries marked with the ``FRAMEWORK``
   property are treated as ``FRAMEWORK`` targets on macOS.
 
 ``BUNDLE``
-  Executables marked with the ``MACOSX_BUNDLE`` property are treated as
+  Executables marked with the :prop_tgt:`MACOSX_BUNDLE` property are treated as
   ``BUNDLE`` targets on macOS.
 
 ``PUBLIC_HEADER``
-  Any ``PUBLIC_HEADER`` files associated with a library are installed in
+  Any :prop_tgt:`PUBLIC_HEADER` files associated with a library are installed in
   the destination specified by the ``PUBLIC_HEADER`` argument on non-Apple
-  platforms. Rules defined by this argument are ignored for ``FRAMEWORK``
+  platforms. Rules defined by this argument are ignored for :prop_tgt:`FRAMEWORK`
   libraries on Apple platforms because the associated files are installed
   into the appropriate locations inside the framework folder. See
   :prop_tgt:`PUBLIC_HEADER` for details.
@@ -172,11 +203,20 @@ installation properties apply to all target types. If only one is given then
 only targets of that type will be installed (which can be used to install
 just a DLL or just an import library.)
 
-For some target types, the ``DESTINATION`` argument is optional. If no
-``DESTINATION`` argument is specified for these target types, the destination
-will default to either the appropriate variable from :module:`GNUInstallDirs`
-(if it is defined) or a built-in default (if the variable is not defined.) These
-defaults are outlined below:
+For regular executables, static libraries and shared libraries, the
+``DESTINATION`` argument is not required.  For these target types, when
+``DESTINATION`` is omitted, a default destination will be taken from the
+appropriate variable from :module:`GNUInstallDirs`, or set to a built-in
+default value if that variable is not defined.  The same is true for the
+public and private headers associated with the installed targets through the
+:prop_tgt:`PUBLIC_HEADER` and :prop_tgt:`PRIVATE_HEADER` target properties.
+A destination must always be provided for module libraries, Apple bundles and
+frameworks.  A destination can be omitted for interface and object libraries,
+but they are handled differently (see the discussion of this topic toward the
+end of this section).
+
+The following table shows the target types with their associated variables and
+built-in defaults that apply when no destination is given:
 
 ================== =============================== ======================
    Target Type         GNUInstallDirs Variable        Built-In Default
@@ -188,17 +228,35 @@ defaults are outlined below:
 ``PUBLIC_HEADER``  ``${CMAKE_INSTALL_INCLUDEDIR}`` ``include``
 ================== =============================== ======================
 
-To make your package compliant with distribution filesystem layout policies, it
-is not recommended that you specify a ``DESTINATION`` for a target unless it
-must be installed in a nonstandard location. That way, package maintainers can
-control the install destination by setting the appropriate cache variables. In
-any case, it is recommended that you use the :module:`GNUInstallDirs` variables
-in your ``DESTINATION`` arguments whenever possible.
+Projects wishing to follow the common practice of installing headers into a
+project-specific subdirectory will need to provide a destination rather than
+rely on the above.
+
+To make packages compliant with distribution filesystem layout policies, if
+projects must specify a ``DESTINATION``, it is recommended that they use a
+path that begins with the appropriate :module:`GNUInstallDirs` variable.
+This allows package maintainers to control the install destination by setting
+the appropriate cache variables.  The following example shows a static library
+being installed to the default destination provided by
+:module:`GNUInstallDirs`, but with its headers installed to a project-specific
+subdirectory that follows the above recommendation:
+
+.. code-block:: cmake
+
+  add_library(mylib STATIC ...)
+  set_target_properties(mylib PROPERTIES PUBLIC_HEADER mylib.h)
+  include(GNUInstallDirs)
+  install(TARGETS mylib
+          PUBLIC_HEADER
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/myproj
+  )
 
 In addition to the common options listed above, each target can accept
 the following additional arguments:
 
 ``NAMELINK_COMPONENT``
+  .. versionadded:: 3.12
+
   On some platforms a versioned shared library has a symbolic link such
   as::
 
@@ -218,11 +276,9 @@ the following additional arguments:
 
     install(TARGETS mylib
             LIBRARY
-              DESTINATION lib
               COMPONENT Libraries
               NAMELINK_COMPONENT Development
             PUBLIC_HEADER
-              DESTINATION include
               COMPONENT Development
            )
 
@@ -265,18 +321,20 @@ the following additional arguments:
   is not recommended to use ``NAMELINK_SKIP`` in conjunction with
   ``NAMELINK_COMPONENT``.
 
-The ``install(TARGETS)`` command can also accept the following options at the
+The `install(TARGETS)`_ command can also accept the following options at the
 top level:
 
 ``EXPORT``
   This option associates the installed target files with an export called
   ``<export-name>``.  It must appear before any target options.  To actually
-  install the export file itself, call ``install(EXPORT)``, documented below.
+  install the export file itself, call `install(EXPORT)`_, documented below.
+  See documentation of the :prop_tgt:`EXPORT_NAME` target property to change
+  the name of the exported target.
 
 ``INCLUDES DESTINATION``
   This option specifies a list of directories which will be added to the
   :prop_tgt:`INTERFACE_INCLUDE_DIRECTORIES` target property of the
-  ``<targets>`` when exported by the :command:`install(EXPORT)` command. If a
+  ``<targets>`` when exported by the `install(EXPORT)`_ command. If a
   relative path is specified, it is treated as relative to the
   ``$<INSTALL_PREFIX>``.
 
@@ -310,27 +368,32 @@ targets that link to the object libraries in their implementation.
 Installing a target with the :prop_tgt:`EXCLUDE_FROM_ALL` target property
 set to ``TRUE`` has undefined behavior.
 
-:command:`install(TARGETS)` can install targets that were created in
-other directories.  When using such cross-directory install rules, running
-``make install`` (or similar) from a subdirectory will not guarantee that
-targets from other directories are up-to-date.  You can use
-:command:`target_link_libraries` or :command:`add_dependencies`
-to ensure that such out-of-directory targets are built before the
-subdirectory-specific install rules are run.
+.. versionadded:: 3.3
+  An install destination given as a ``DESTINATION`` argument may
+  use "generator expressions" with the syntax ``$<...>``.  See the
+  :manual:`cmake-generator-expressions(7)` manual for available expressions.
 
-The install destination given to the target install ``DESTINATION`` may
-use "generator expressions" with the syntax ``$<...>``.  See the
-:manual:`cmake-generator-expressions(7)` manual for available expressions.
+.. versionadded:: 3.13
+  `install(TARGETS)`_ can install targets that were created in
+  other directories.  When using such cross-directory install rules, running
+  ``make install`` (or similar) from a subdirectory will not guarantee that
+  targets from other directories are up-to-date.  You can use
+  :command:`target_link_libraries` or :command:`add_dependencies`
+  to ensure that such out-of-directory targets are built before the
+  subdirectory-specific install rules are run.
 
 Installing Files
 ^^^^^^^^^^^^^^^^
 
+.. _`install(FILES)`:
+.. _`install(PROGRAMS)`:
 .. _FILES:
 .. _PROGRAMS:
 
 .. code-block:: cmake
 
-  install(<FILES|PROGRAMS> files... [DESTINATION <dir> | TYPE <type>]
+  install(<FILES|PROGRAMS> files...
+          TYPE <type> | DESTINATION <dir>
           [PERMISSIONS permissions...]
           [CONFIGURATIONS [Debug|Release|...]]
           [COMPONENT <component>]
@@ -354,12 +417,14 @@ The list of ``files...`` given to ``FILES`` or ``PROGRAMS`` may use
 However, if any item begins in a generator expression it must evaluate
 to a full path.
 
-Instead of specifying ``DESTINATION``, you may specify a generic file type
-via the ``TYPE`` argument as listed below. If a type is selected and no
-destination is specified, the destination will default to either the
-appropriate variable from :module:`GNUInstallDirs` (if it is defined) or a
-built-in default (if the variable is not defined.) These defaults are outlined
-below:
+Either a ``TYPE`` or a ``DESTINATION`` must be provided, but not both.
+A ``TYPE`` argument specifies the generic file type of the files being
+installed.  A destination will then be set automatically by taking the
+corresponding variable from :module:`GNUInstallDirs`, or by using a
+built-in default if that variable is not defined.  See the table below for
+the supported file types and their corresponding variables and built-in
+defaults.  Projects can provide a ``DESTINATION`` argument instead of a
+file type if they wish to explicitly define the install destination.
 
 ======================= ================================== =========================
    ``TYPE`` Argument         GNUInstallDirs Variable           Built-In Default
@@ -379,7 +444,9 @@ below:
 ``DOC``                 ``${CMAKE_INSTALL_DOCDIR}``        ``<DATAROOT dir>/doc``
 ======================= ================================== =========================
 
-It is an error to use ``TYPE`` and ``DESTINATION`` arguments together.
+Projects wishing to follow the common practice of installing headers into a
+project-specific subdirectory will need to provide a destination rather than
+rely on the above.
 
 Note that some of the types' built-in defaults use the ``DATAROOT`` directory as
 a prefix. The ``DATAROOT`` prefix is calculated similarly to the types, with
@@ -387,26 +454,40 @@ a prefix. The ``DATAROOT`` prefix is calculated similarly to the types, with
 default. You cannot use ``DATAROOT`` as a ``TYPE`` parameter; please use
 ``DATA`` instead.
 
-To make your package compliant with distribution filesystem layout policies, it
-is recommended that you specify one of the above generic file types, rather than
-a ``DESTINATION`` argument, unless the files must be installed in a nonstandard
-location. That way, package maintainers can control the install destination by
-setting the appropriate cache variables. In any case, it is recommended that you
-use the :module:`GNUInstallDirs` variables in your ``DESTINATION`` arguments
-whenever possible.
+To make packages compliant with distribution filesystem layout policies, if
+projects must specify a ``DESTINATION``, it is recommended that they use a
+path that begins with the appropriate :module:`GNUInstallDirs` variable.
+This allows package maintainers to control the install destination by setting
+the appropriate cache variables.  The following example shows how to follow
+this advice while installing headers to a project-specific subdirectory:
 
-The install destination given to the files install ``DESTINATION`` may
-use "generator expressions" with the syntax ``$<...>``.  See the
-:manual:`cmake-generator-expressions(7)` manual for available expressions.
+.. code-block:: cmake
+
+  include(GNUInstallDirs)
+  install(FILES mylib.h
+          DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/myproj
+  )
+
+.. versionadded:: 3.4
+  An install destination given as a ``DESTINATION`` argument may
+  use "generator expressions" with the syntax ``$<...>``.  See the
+  :manual:`cmake-generator-expressions(7)` manual for available expressions.
+
+.. versionadded:: 3.20
+  An install rename given as a ``RENAME`` argument may
+  use "generator expressions" with the syntax ``$<...>``.  See the
+  :manual:`cmake-generator-expressions(7)` manual for available expressions.
 
 Installing Directories
 ^^^^^^^^^^^^^^^^^^^^^^
 
+.. _`install(DIRECTORY)`:
 .. _DIRECTORY:
 
 .. code-block:: cmake
 
-  install(DIRECTORY dirs... [DESTINATION <dir> | TYPE <type>]
+  install(DIRECTORY dirs...
+          TYPE <type> | DESTINATION <dir>
           [FILE_PERMISSIONS permissions...]
           [DIRECTORY_PERMISSIONS permissions...]
           [USE_SOURCE_PERMISSIONS] [OPTIONAL] [MESSAGE_NEVER]
@@ -433,7 +514,8 @@ permissions specified in the ``FILES`` form of the command, and the
 directories will be given the default permissions specified in the
 ``PROGRAMS`` form of the command.
 
-The ``MESSAGE_NEVER`` option disables file installation status output.
+.. versionadded:: 3.1
+  The ``MESSAGE_NEVER`` option disables file installation status output.
 
 Installation of directories may be controlled with fine granularity
 using the ``PATTERN`` or ``REGEX`` options.  These "match" options specify a
@@ -477,12 +559,15 @@ will install the ``icons`` directory to ``share/myproj/icons`` and the
 file permissions, the scripts will be given specific permissions, and any
 ``CVS`` directories will be excluded.
 
-Instead of specifying ``DESTINATION``, you may specify a generic file type
-via the ``TYPE`` argument as listed below. If a type is selected and no
-destination is specified, the destination will default to either the
-appropriate variable from :module:`GNUInstallDirs` (if it is defined) or a
-built-in default (if the variable is not defined.) These defaults are outlined
-below:
+Either a ``TYPE`` or a ``DESTINATION`` must be provided, but not both.
+A ``TYPE`` argument specifies the generic file type of the files within the
+listed directories being installed.  A destination will then be set
+automatically by taking the corresponding variable from
+:module:`GNUInstallDirs`, or by using a built-in default if that variable
+is not defined.  See the table below for the supported file types and their
+corresponding variables and built-in defaults.  Projects can provide a
+``DESTINATION`` argument instead of a file type if they wish to explicitly
+define the install destination.
 
 ======================= ================================== =========================
    ``TYPE`` Argument         GNUInstallDirs Variable           Built-In Default
@@ -502,30 +587,32 @@ below:
 ``DOC``                 ``${CMAKE_INSTALL_DOCDIR}``        ``<DATAROOT dir>/doc``
 ======================= ================================== =========================
 
-It is an error to use ``TYPE`` and ``DESTINATION`` arguments together.
-
 Note that some of the types' built-in defaults use the ``DATAROOT`` directory as
 a prefix. The ``DATAROOT`` prefix is calculated similarly to the types, with
 ``CMAKE_INSTALL_DATAROOTDIR`` as the variable and ``share`` as the built-in
 default. You cannot use ``DATAROOT`` as a ``TYPE`` parameter; please use
 ``DATA`` instead.
 
-To make your package compliant with distribution filesystem layout policies, it
-is recommended that you specify one of the above generic file types, rather than
-a ``DESTINATION`` argument, unless the files must be installed in a nonstandard
-location. That way, package maintainers can control the install destination by
-setting the appropriate cache variables. In any case, it is recommended that you
-use the :module:`GNUInstallDirs` variables in your ``DESTINATION`` arguments
-whenever possible.
+To make packages compliant with distribution filesystem layout policies, if
+projects must specify a ``DESTINATION``, it is recommended that they use a
+path that begins with the appropriate :module:`GNUInstallDirs` variable.
+This allows package maintainers to control the install destination by setting
+the appropriate cache variables.
 
-The list of ``dirs...`` given to ``DIRECTORY`` and the install destination
-given to the directory install ``DESTINATION`` may use "generator expressions"
-with the syntax ``$<...>``.  See the :manual:`cmake-generator-expressions(7)`
-manual for available expressions.
+.. versionadded:: 3.4
+  An install destination given as a ``DESTINATION`` argument may
+  use "generator expressions" with the syntax ``$<...>``.  See the
+  :manual:`cmake-generator-expressions(7)` manual for available expressions.
+
+.. versionadded:: 3.5
+  The list of ``dirs...`` given to ``DIRECTORY`` may use
+  "generator expressions" too.
 
 Custom Installation Logic
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
+.. _`install(CODE)`:
+.. _`install(SCRIPT)`:
 .. _CODE:
 .. _SCRIPT:
 
@@ -547,9 +634,16 @@ example, the code
 
 will print a message during installation.
 
+.. versionadded:: 3.14
+  ``<file>`` or ``<code>`` may use "generator expressions" with the syntax
+  ``$<...>`` (in the case of ``<file>``, this refers to their use in the file
+  name, not the file's contents).  See the
+  :manual:`cmake-generator-expressions(7)` manual for available expressions.
+
 Installing Exports
 ^^^^^^^^^^^^^^^^^^
 
+.. _`install(EXPORT)`:
 .. _EXPORT:
 
 .. code-block:: cmake
@@ -566,7 +660,7 @@ Installing Exports
 The ``EXPORT`` form generates and installs a CMake file containing code to
 import targets from the installation tree into another project.
 Target installations are associated with the export ``<export-name>``
-using the ``EXPORT`` option of the ``install(TARGETS)`` signature
+using the ``EXPORT`` option of the `install(TARGETS)`_ signature
 documented above.  The ``NAMESPACE`` option will prepend ``<namespace>`` to
 the target names as they are written to the import file.  By default
 the generated file will be called ``<export-name>.cmake`` but the ``FILE``
@@ -579,6 +673,13 @@ configurations.  The ``EXPORT_LINK_INTERFACE_LIBRARIES`` keyword, if
 present, causes the contents of the properties matching
 ``(IMPORTED_)?LINK_INTERFACE_LIBRARIES(_<CONFIG>)?`` to be exported, when
 policy :policy:`CMP0022` is ``NEW``.
+
+.. note::
+  The installed ``<export-name>.cmake`` file may come with additional
+  per-configuration ``<export-name>-*.cmake`` files to be loaded by
+  globbing.  Do not use an export name that is the same as the package
+  name in combination with installing a ``<package-name>-config.cmake``
+  file or the latter may be incorrectly matched by the glob and loaded.
 
 When a ``COMPONENT`` option is given, the listed ``<component>`` implicitly
 depends on all components mentioned in the export set. The exported
@@ -597,13 +698,14 @@ RPM, typically handle this by listing the ``Runtime`` component as a dependency
 of the ``Development`` component in the package metadata, ensuring that the
 library is always installed if the headers and CMake export file are present.
 
-In addition to cmake language files, the ``EXPORT_ANDROID_MK`` mode maybe
-used to specify an export to the android ndk build system.  This mode
-accepts the same options as the normal export mode.  The Android
-NDK supports the use of prebuilt libraries, both static and shared. This
-allows cmake to build the libraries of a project and make them available
-to an ndk build system complete with transitive dependencies, include flags
-and defines required to use the libraries.
+.. versionadded:: 3.7
+  In addition to cmake language files, the ``EXPORT_ANDROID_MK`` mode maybe
+  used to specify an export to the android ndk build system.  This mode
+  accepts the same options as the normal export mode.  The Android
+  NDK supports the use of prebuilt libraries, both static and shared. This
+  allows cmake to build the libraries of a project and make them available
+  to an ndk build system complete with transitive dependencies, include flags
+  and defines required to use the libraries.
 
 The ``EXPORT`` form is useful to help outside projects use targets built
 and installed by the current project.  For example, the code
@@ -612,9 +714,9 @@ and installed by the current project.  For example, the code
 
   install(TARGETS myexe EXPORT myproj DESTINATION bin)
   install(EXPORT myproj NAMESPACE mp_ DESTINATION lib/myproj)
-  install(EXPORT_ANDROID_MK myexp DESTINATION share/ndk-modules)
+  install(EXPORT_ANDROID_MK myproj DESTINATION share/ndk-modules)
 
-will install the executable myexe to ``<prefix>/bin`` and code to import
+will install the executable ``myexe`` to ``<prefix>/bin`` and code to import
 it in the file ``<prefix>/lib/myproj/myproj.cmake`` and
 ``<prefix>/share/ndk-modules/Android.mk``.  An outside project
 may load this file with the include command and reference the ``myexe``
@@ -633,6 +735,11 @@ executable from the installation tree using the imported target name
 
 Generated Installation Script
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. note::
+
+  Use of this feature is not recommended. Please consider using the
+  ``--install`` argument of :manual:`cmake(1)` instead.
 
 The ``install()`` command generates a file, ``cmake_install.cmake``, inside
 the build directory, which is used internally by the generated install target

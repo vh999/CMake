@@ -6,9 +6,10 @@
 #include <cassert>
 #include <utility>
 
-#include "cmAlgorithms.h"
 #include "cmFindCommon.h"
 #include "cmMakefile.h"
+#include "cmProperty.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
 
 cmSearchPath::cmSearchPath(cmFindCommon* findCmd)
@@ -16,9 +17,7 @@ cmSearchPath::cmSearchPath(cmFindCommon* findCmd)
 {
 }
 
-cmSearchPath::~cmSearchPath()
-{
-}
+cmSearchPath::~cmSearchPath() = default;
 
 void cmSearchPath::ExtractWithout(const std::set<std::string>& ignore,
                                   std::vector<std::string>& outPaths,
@@ -79,9 +78,8 @@ void cmSearchPath::AddCMakePath(const std::string& variable)
   assert(this->FC != nullptr);
 
   // Get a path from a CMake variable.
-  if (const char* value = this->FC->Makefile->GetDefinition(variable)) {
-    std::vector<std::string> expanded;
-    cmSystemTools::ExpandListArgument(value, expanded);
+  if (cmProp value = this->FC->Makefile->GetDefinition(variable)) {
+    std::vector<std::string> expanded = cmExpandedList(*value);
 
     for (std::string const& p : expanded) {
       this->AddPathInternal(
@@ -104,9 +102,8 @@ void cmSearchPath::AddCMakePrefixPath(const std::string& variable)
   assert(this->FC != nullptr);
 
   // Get a path from a CMake variable.
-  if (const char* value = this->FC->Makefile->GetDefinition(variable)) {
-    std::vector<std::string> expanded;
-    cmSystemTools::ExpandListArgument(value, expanded);
+  if (cmProp value = this->FC->Makefile->GetDefinition(variable)) {
+    std::vector<std::string> expanded = cmExpandedList(*value);
 
     this->AddPrefixPaths(
       expanded, this->FC->Makefile->GetCurrentSourceDirectory().c_str());
@@ -146,7 +143,7 @@ void cmSearchPath::AddSuffixes(const std::vector<std::string>& suffixes)
     // this will get incorrectly considered a network
     // path on windows and cause huge delays.
     std::string p = inPath;
-    if (!p.empty() && *p.rbegin() != '/') {
+    if (!p.empty() && p.back() != '/') {
       p += "/";
     }
 
@@ -178,14 +175,20 @@ void cmSearchPath::AddPrefixPaths(const std::vector<std::string>& paths,
 
   for (std::string const& path : paths) {
     std::string dir = path;
-    if (!subdir.empty() && !dir.empty() && *dir.rbegin() != '/') {
+    if (!subdir.empty() && !dir.empty() && dir.back() != '/') {
       dir += "/";
     }
     if (subdir == "include" || subdir == "lib") {
-      const char* arch =
+      cmProp arch =
         this->FC->Makefile->GetDefinition("CMAKE_LIBRARY_ARCHITECTURE");
-      if (arch && *arch) {
-        this->AddPathInternal(dir + subdir + "/" + arch, base);
+      if (cmNonempty(arch)) {
+        if (this->FC->Makefile->IsDefinitionSet("CMAKE_SYSROOT") &&
+            this->FC->Makefile->IsDefinitionSet(
+              "CMAKE_PREFIX_LIBRARY_ARCHITECTURE")) {
+          this->AddPathInternal(cmStrCat('/', *arch, dir, subdir), base);
+        } else {
+          this->AddPathInternal(cmStrCat(dir, subdir, '/', *arch), base);
+        }
       }
     }
     std::string add = dir + subdir;

@@ -12,28 +12,31 @@ Bundle-specific parameters (``CPACK_BUNDLE_xxx``).
 
 .. variable:: CPACK_BUNDLE_NAME
 
- The name of the generated bundle. This appears in the OSX finder as the
+ The name of the generated bundle. This appears in the macOS Finder as the
  bundle name. Required.
 
 .. variable:: CPACK_BUNDLE_PLIST
 
- Path to an OSX plist file that will be used for the generated bundle. This
- assumes that the caller has generated or specified their own Info.plist
+ Path to an macOS Property List (``.plist``) file that will be used
+ for the generated bundle. This
+ assumes that the caller has generated or specified their own ``Info.plist``
  file. Required.
 
 .. variable:: CPACK_BUNDLE_ICON
 
- Path to an OSX icon file that will be used as the icon for the generated
- bundle. This is the icon that appears in the OSX finder for the bundle, and
- in the OSX dock when the bundle is opened. Required.
+ Path to an macOS icon file that will be used as the icon for the generated
+ bundle. This is the icon that appears in the macOS Finder for the bundle, and
+ in the macOS dock when the bundle is opened. Required.
 
 .. variable:: CPACK_BUNDLE_STARTUP_COMMAND
 
  Path to a startup script. This is a path to an executable or script that
  will be run whenever an end-user double-clicks the generated bundle in the
- OSX Finder. Optional.
+ macOS Finder. Optional.
 
 .. variable:: CPACK_BUNDLE_APPLE_CERT_APP
+
+ .. versionadded:: 3.2
 
  The name of your Apple supplied code signing certificate for the application.
  The name usually takes the form ``Developer ID Application: [Name]`` or
@@ -42,10 +45,15 @@ Bundle-specific parameters (``CPACK_BUNDLE_xxx``).
 
 .. variable:: CPACK_BUNDLE_APPLE_ENTITLEMENTS
 
- The name of the ``Plist`` file that contains your apple entitlements for sandboxing
- your application. This file is required for submission to the Mac App Store.
+ .. versionadded:: 3.2
+
+ The name of the Property List (``.plist``) file that contains your Apple
+ entitlements for sandboxing your application. This file is required
+ for submission to the macOS App Store.
 
 .. variable:: CPACK_BUNDLE_APPLE_CODESIGN_FILES
+
+ .. versionadded:: 3.2
 
  A list of additional files that you wish to be signed. You do not need to
  list the main application folder, or the main executable. You should
@@ -53,10 +61,14 @@ Bundle-specific parameters (``CPACK_BUNDLE_xxx``).
 
 .. variable:: CPACK_BUNDLE_APPLE_CODESIGN_PARAMETER
 
+ .. versionadded:: 3.3
+
  Additional parameter that will passed to ``codesign``.
  Default value: ``--deep -f``
 
 .. variable:: CPACK_COMMAND_CODESIGN
+
+ .. versionadded:: 3.2
 
  Path to the ``codesign(1)`` command used to sign applications with an
  Apple cert. This variable can be used to override the automatically

@@ -28,10 +28,7 @@ To enable submissions to a CDash server, create a ``CTestConfig.cmake``
 file at the top of the project with content such as::
 
   set(CTEST_NIGHTLY_START_TIME "01:00:00 UTC")
-  set(CTEST_DROP_METHOD "http")
-  set(CTEST_DROP_SITE "my.cdash.org")
-  set(CTEST_DROP_LOCATION "/submit.php?project=MyProject")
-  set(CTEST_DROP_SITE_CDASH TRUE)
+  set(CTEST_SUBMIT_URL "http://my.cdash.org/submit.php?project=MyProject")
 
 (the CDash server can provide the file to a project administrator who
 configures ``MyProject``).  Settings in the config file are shared by
@@ -89,6 +86,7 @@ if(BUILD_TESTING)
   if(EXISTS "${PROJECT_SOURCE_DIR}/CTestConfig.cmake")
     include("${PROJECT_SOURCE_DIR}/CTestConfig.cmake")
     SET_IF_SET_AND_NOT_SET(NIGHTLY_START_TIME "${CTEST_NIGHTLY_START_TIME}")
+    SET_IF_SET_AND_NOT_SET(SUBMIT_URL "${CTEST_SUBMIT_URL}")
     SET_IF_SET_AND_NOT_SET(DROP_METHOD "${CTEST_DROP_METHOD}")
     SET_IF_SET_AND_NOT_SET(DROP_SITE "${CTEST_DROP_SITE}")
     SET_IF_SET_AND_NOT_SET(DROP_SITE_USER "${CTEST_DROP_SITE_USER}")
@@ -111,14 +109,17 @@ if(BUILD_TESTING)
   endif()
   SET_IF_NOT_SET (NIGHTLY_START_TIME "00:00:00 EDT")
 
-  find_program(CVSCOMMAND cvs )
-  set(CVS_UPDATE_OPTIONS "-d -A -P" CACHE STRING
-    "Options passed to the cvs update command.")
-  find_program(SVNCOMMAND svn)
-  find_program(BZRCOMMAND bzr)
-  find_program(HGCOMMAND hg)
-  find_program(GITCOMMAND git)
-  find_program(P4COMMAND p4)
+  if(NOT SUBMIT_URL)
+    set(SUBMIT_URL "${DROP_METHOD}://")
+    if(DROP_SITE_USER)
+      string(APPEND SUBMIT_URL "${DROP_SITE_USER}")
+      if(DROP_SITE_PASSWORD)
+        string(APPEND SUBMIT_URL ":${DROP_SITE_PASSWORD}")
+      endif()
+      string(APPEND SUBMIT_URL "@")
+    endif()
+    string(APPEND SUBMIT_URL "${DROP_SITE}${DROP_LOCATION}")
+  endif()
 
   if(NOT UPDATE_TYPE)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/CVS")
@@ -136,21 +137,29 @@ if(BUILD_TESTING)
 
   string(TOLOWER "${UPDATE_TYPE}" _update_type)
   if("${_update_type}" STREQUAL "cvs")
+    find_program(CVSCOMMAND cvs )
+    set(CVS_UPDATE_OPTIONS "-d -A -P" CACHE STRING
+      "Options passed to the cvs update command.")
     set(UPDATE_COMMAND "${CVSCOMMAND}")
     set(UPDATE_OPTIONS "${CVS_UPDATE_OPTIONS}")
   elseif("${_update_type}" STREQUAL "svn")
+    find_program(SVNCOMMAND svn)
     set(UPDATE_COMMAND "${SVNCOMMAND}")
     set(UPDATE_OPTIONS "${SVN_UPDATE_OPTIONS}")
   elseif("${_update_type}" STREQUAL "bzr")
+    find_program(BZRCOMMAND bzr)
     set(UPDATE_COMMAND "${BZRCOMMAND}")
     set(UPDATE_OPTIONS "${BZR_UPDATE_OPTIONS}")
   elseif("${_update_type}" STREQUAL "hg")
+    find_program(HGCOMMAND hg)
     set(UPDATE_COMMAND "${HGCOMMAND}")
     set(UPDATE_OPTIONS "${HG_UPDATE_OPTIONS}")
   elseif("${_update_type}" STREQUAL "git")
+    find_program(GITCOMMAND git)
     set(UPDATE_COMMAND "${GITCOMMAND}")
     set(UPDATE_OPTIONS "${GIT_UPDATE_OPTIONS}")
   elseif("${_update_type}" STREQUAL "p4")
+    find_program(P4COMMAND p4)
     set(UPDATE_COMMAND "${P4COMMAND}")
     set(UPDATE_OPTIONS "${P4_UPDATE_OPTIONS}")
   endif()
@@ -164,22 +173,13 @@ if(BUILD_TESTING)
     "How many times to retry timed-out CTest submissions.")
 
   find_program(MEMORYCHECK_COMMAND
-    NAMES purify valgrind boundscheck
+    NAMES purify valgrind boundscheck drmemory cuda-memcheck compute-sanitizer
     PATHS
     "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Rational Software\\Purify\\Setup;InstallFolder]"
     DOC "Path to the memory checking command, used for memory error detection."
     )
-  find_program(SLURM_SBATCH_COMMAND sbatch DOC
-    "Path to the SLURM sbatch executable"
-    )
-  find_program(SLURM_SRUN_COMMAND srun DOC
-    "Path to the SLURM srun executable"
-    )
   set(MEMORYCHECK_SUPPRESSIONS_FILE "" CACHE FILEPATH
     "File that contains suppressions for the memory checker")
-  find_program(SCPCOMMAND scp DOC
-    "Path to scp command, used by CTest for submitting results to a Dart server"
-    )
   find_program(COVERAGE_COMMAND gcov DOC
     "Path to the coverage program that CTest uses for performing coverage inspection"
     )
@@ -187,7 +187,14 @@ if(BUILD_TESTING)
     "Extra command line flags to pass to the coverage tool")
 
   # set the site name
-  site_name(SITE)
+  if(COMMAND cmake_host_system_information)
+    cmake_host_system_information(RESULT _ctest_hostname QUERY HOSTNAME)
+    set(SITE "${_ctest_hostname}" CACHE STRING "Name of the computer/site where compile is being run")
+    unset(_ctest_hostname)
+  else()
+    # This code path is needed for CMake itself during bootstrap.
+    site_name(SITE)
+  endif()
   # set the build name
   if(NOT BUILDNAME)
     set(DART_COMPILER "${CMAKE_CXX_COMPILER}")
@@ -236,7 +243,6 @@ if(BUILD_TESTING)
 
   mark_as_advanced(
     BZRCOMMAND
-    BZR_UPDATE_OPTIONS
     COVERAGE_COMMAND
     COVERAGE_EXTRA_FLAGS
     CTEST_SUBMIT_RETRY_DELAY
@@ -250,13 +256,8 @@ if(BUILD_TESTING)
     MAKECOMMAND
     MEMORYCHECK_COMMAND
     MEMORYCHECK_SUPPRESSIONS_FILE
-    PURIFYCOMMAND
-    SCPCOMMAND
-    SLURM_SBATCH_COMMAND
-    SLURM_SRUN_COMMAND
     SITE
     SVNCOMMAND
-    SVN_UPDATE_OPTIONS
     )
   if(NOT RUN_FROM_DART)
     set(RUN_FROM_CTEST_OR_DART 1)

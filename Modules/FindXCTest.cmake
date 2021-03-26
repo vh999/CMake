@@ -5,6 +5,8 @@
 FindXCTest
 ----------
 
+.. versionadded:: 3.3
+
 Functions to help creating and executing XCTest bundles.
 
 An XCTest bundle is a CFBundle with a special product-type
@@ -61,6 +63,22 @@ The following variables are set by including this module:
 
 #]=======================================================================]
 
+set(_PRESERVED_CMAKE_FIND_ROOT_PATH "${CMAKE_FIND_ROOT_PATH}")
+
+if(CMAKE_EFFECTIVE_SYSTEM_NAME STREQUAL "Apple"
+   AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+  # Non-macos systems set the CMAKE_FIND_ROOT_PATH_MODE to "ONLY" which
+  # restricts the search paths too much to find XCTest.framework. In
+  # contrast to the regular system frameworks which reside within the
+  # SDK direectory the XCTest framework is located in the respective
+  # platform directory which is not added to the CMAKE_FIND_ROOT_PATH
+  # (only to CMAKE_SYSTEM_FRAMEWORK_PATH) and therefore not searched.
+  #
+  # Until this is properly addressed, temporaily add the platform
+  # directory to CMAKE_FIND_ROOT_PATH.
+  list(APPEND CMAKE_FIND_ROOT_PATH "${_CMAKE_OSX_SYSROOT_PATH}/../..")
+endif()
+
 find_path(XCTest_INCLUDE_DIR
   NAMES "XCTest/XCTest.h"
   DOC "XCTest include directory")
@@ -70,6 +88,9 @@ find_library(XCTest_LIBRARY
   NAMES XCTest
   DOC "XCTest Framework library")
 mark_as_advanced(XCTest_LIBRARY)
+
+set(CMAKE_FIND_ROOT_PATH "${_PRESERVED_CMAKE_FIND_ROOT_PATH}")
+unset(_PRESERVED_CMAKE_FIND_ROOT_PATH)
 
 execute_process(
   COMMAND xcrun --find xctest
@@ -134,9 +155,16 @@ function(xctest_add_bundle target testee)
       set_target_properties(${target} PROPERTIES
         XCODE_ATTRIBUTE_BUNDLE_LOADER "$(TEST_HOST)"
         XCODE_ATTRIBUTE_TEST_HOST "$<TARGET_FILE:${testee}>")
-      if(NOT XCODE_VERSION VERSION_LESS 7.3)
+      if(XCODE_VERSION VERSION_GREATER_EQUAL 7.3)
+        # CMAKE_XCODE_BUILD_SYSTEM equals 12 means that at least Xcode 11.x is used.
+        if(CMAKE_XCODE_BUILD_SYSTEM EQUAL 12 AND
+           NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+          set(_output_directory "$<TARGET_BUNDLE_CONTENT_DIR:${testee}>")
+        else()
+          set(_output_directory "$<TARGET_BUNDLE_CONTENT_DIR:${testee}>/PlugIns")
+        endif()
         set_target_properties(${target} PROPERTIES
-          LIBRARY_OUTPUT_DIRECTORY "$<TARGET_BUNDLE_CONTENT_DIR:${testee}>/PlugIns")
+          LIBRARY_OUTPUT_DIRECTORY "${_output_directory}")
       endif()
     else(XCODE)
       target_link_libraries(${target}

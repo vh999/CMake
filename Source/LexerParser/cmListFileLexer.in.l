@@ -18,7 +18,7 @@ Modify cmListFileLexer.c:
 
 /* IWYU pragma: no_forward_declare yyguts_t */
 
-#ifdef WIN32
+#ifdef _WIN32
 #include "cmsys/Encoding.h"
 #endif
 
@@ -57,7 +57,7 @@ static void cmListFileLexerDestroy(cmListFileLexer* lexer);
 /* Replace the lexer input function.  */
 #undef YY_INPUT
 #define YY_INPUT(buf, result, max_size) \
-  { result = cmListFileLexerInput(cmListFileLexer_yyget_extra(yyscanner), buf, max_size); }
+  do { result = cmListFileLexerInput(cmListFileLexer_yyget_extra(yyscanner), buf, max_size); } while (0)
 
 /*--------------------------------------------------------------------------*/
 %}
@@ -500,7 +500,7 @@ int cmListFileLexer_SetString(cmListFileLexer* lexer, const char* text)
 /*--------------------------------------------------------------------------*/
 cmListFileLexer_Token* cmListFileLexer_Scan(cmListFileLexer* lexer)
 {
-  if (!lexer->file) {
+  if (!lexer->file && !lexer->string_buffer) {
     return 0;
   }
   if (cmListFileLexer_yylex(lexer->scanner, lexer)) {
@@ -514,21 +514,13 @@ cmListFileLexer_Token* cmListFileLexer_Scan(cmListFileLexer* lexer)
 /*--------------------------------------------------------------------------*/
 long cmListFileLexer_GetCurrentLine(cmListFileLexer* lexer)
 {
-  if (lexer->file) {
-    return lexer->line;
-  } else {
-    return 0;
-  }
+  return lexer->line;
 }
 
 /*--------------------------------------------------------------------------*/
 long cmListFileLexer_GetCurrentColumn(cmListFileLexer* lexer)
 {
-  if (lexer->file) {
-    return lexer->column;
-  } else {
-    return 0;
-  }
+  return lexer->column;
 }
 
 /*--------------------------------------------------------------------------*/

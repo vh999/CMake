@@ -4,9 +4,12 @@ cmake_policy(SET CMP0057 NEW)
 
 project(CompileFeatures)
 
+set(ext_C c)
+set(ext_CXX cpp)
+
 macro(run_test feature lang)
   if (${feature} IN_LIST CMAKE_${lang}_COMPILE_FEATURES)
-    add_library(test_${feature} OBJECT ${feature})
+    add_library(test_${feature} OBJECT ${feature}.${ext_${lang}})
     set_property(TARGET test_${feature}
       PROPERTY COMPILE_FEATURES "${feature}"
     )
@@ -15,17 +18,21 @@ macro(run_test feature lang)
   endif()
 endmacro()
 
-get_property(c_features GLOBAL PROPERTY CMAKE_C_KNOWN_FEATURES)
-list(FILTER c_features EXCLUDE REGEX "^c_std_[0-9][0-9]")
-foreach(feature ${c_features})
-  run_test(${feature} C)
-endforeach()
+if(NOT CMAKE_C_COMPILER_ID MATCHES "^(Cray|PGI|NVHPC|XL|XLClang|IntelLLVM)$")
+  get_property(c_features GLOBAL PROPERTY CMAKE_C_KNOWN_FEATURES)
+  list(FILTER c_features EXCLUDE REGEX "^c_std_[0-9][0-9]")
+  foreach(feature ${c_features})
+    run_test(${feature} C)
+  endforeach()
+endif()
 
-get_property(cxx_features GLOBAL PROPERTY CMAKE_CXX_KNOWN_FEATURES)
-list(FILTER cxx_features EXCLUDE REGEX "^cxx_std_[0-9][0-9]")
-foreach(feature ${cxx_features})
-  run_test(${feature} CXX)
-endforeach()
+if(NOT CMAKE_CXX_COMPILER_ID MATCHES "^(Cray|PGI|NVHPC|XL|XLClang|IntelLLVM)$")
+  get_property(cxx_features GLOBAL PROPERTY CMAKE_CXX_KNOWN_FEATURES)
+  list(FILTER cxx_features EXCLUDE REGEX "^cxx_std_[0-9][0-9]")
+  foreach(feature ${cxx_features})
+    run_test(${feature} CXX)
+  endforeach()
+endif()
 
 if (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang"
     AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5.1)
@@ -48,6 +55,16 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang"
 endif()
 
 if (CMAKE_CXX_COMPILER_ID STREQUAL SunPro)
+  if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5.15)
+    # SunPro 5.14 accepts -std=c++14 and compiles two features but does
+    # not define __cplusplus to a value different than with -std=c++11.
+    list(REMOVE_ITEM CXX_non_features
+      cxx_aggregate_default_initializers
+      cxx_digit_separators
+    )
+  endif()
+
+  # FIXME: Do any of these work correctly on SunPro 5.13 or above?
   list(REMOVE_ITEM CXX_non_features
     cxx_attribute_deprecated
     cxx_contextual_conversions
@@ -116,6 +133,12 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
 endif()
 
 if (CMAKE_CXX_COMPILER_ID STREQUAL "Intel")
+  if (CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC"
+      AND CMAKE_CXX_SIMULATE_VERSION VERSION_LESS 19.10)
+    list(REMOVE_ITEM CXX_non_features
+      cxx_relaxed_constexpr
+      )
+  endif()
   if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 16.0)
     if (CMAKE_CXX_COMIPLER_VERSION VERSION_EQUAL 15.0)
       list(REMOVE_ITEM CXX_non_features
@@ -214,6 +237,8 @@ if (C_expected_features)
     if (std_flag_idx EQUAL -1)
       add_executable(default_dialect_C default_dialect.c)
       target_compile_definitions(default_dialect_C PRIVATE
+        DEFAULT_C23=$<EQUAL:${CMAKE_C_STANDARD_DEFAULT},23>
+        DEFAULT_C17=$<EQUAL:${CMAKE_C_STANDARD_DEFAULT},17>
         DEFAULT_C11=$<EQUAL:${CMAKE_C_STANDARD_DEFAULT},11>
         DEFAULT_C99=$<EQUAL:${CMAKE_C_STANDARD_DEFAULT},99>
         DEFAULT_C90=$<EQUAL:${CMAKE_C_STANDARD_DEFAULT},90>
@@ -248,6 +273,7 @@ if (CMAKE_CXX_COMPILE_FEATURES)
     if (std_flag_idx EQUAL -1)
       add_executable(default_dialect default_dialect.cpp)
       target_compile_definitions(default_dialect PRIVATE
+        DEFAULT_CXX23=$<EQUAL:${CMAKE_CXX_STANDARD_DEFAULT},23>
         DEFAULT_CXX20=$<EQUAL:${CMAKE_CXX_STANDARD_DEFAULT},20>
         DEFAULT_CXX17=$<EQUAL:${CMAKE_CXX_STANDARD_DEFAULT},17>
         DEFAULT_CXX14=$<EQUAL:${CMAKE_CXX_STANDARD_DEFAULT},14>
@@ -329,6 +355,7 @@ else()
       HAVE_CXX_STD_14=$<COMPILE_FEATURES:cxx_std_14>
       HAVE_CXX_STD_17=$<COMPILE_FEATURES:cxx_std_17>
       HAVE_CXX_STD_20=$<COMPILE_FEATURES:cxx_std_20>
+      HAVE_CXX_STD_23=$<COMPILE_FEATURES:cxx_std_23>
     )
   endif()
 
@@ -338,11 +365,11 @@ else()
 
   add_executable(CompileFeaturesGenex2 genex_test.cpp)
   target_compile_features(CompileFeaturesGenex2 PRIVATE cxx_std_11)
-  target_compile_definitions(CompileFeaturesGenex2 PRIVATE ${genex_test_defs})
+  target_compile_definitions(CompileFeaturesGenex2 PRIVATE ${genex_test_defs} ALLOW_LATER_STANDARDS=1)
 
   add_library(std_11_iface INTERFACE)
   target_compile_features(std_11_iface INTERFACE cxx_std_11)
   add_executable(CompileFeaturesGenex3 genex_test.cpp)
   target_link_libraries(CompileFeaturesGenex3 PRIVATE std_11_iface)
-  target_compile_definitions(CompileFeaturesGenex3 PRIVATE ${genex_test_defs})
+  target_compile_definitions(CompileFeaturesGenex3 PRIVATE ${genex_test_defs} ALLOW_LATER_STANDARDS=1)
 endif()

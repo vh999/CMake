@@ -2,56 +2,84 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmInstallFilesGenerator.h"
 
+#include <utility>
+
 #include "cmGeneratorExpression.h"
 #include "cmInstallType.h"
-#include "cmSystemTools.h"
-
-#include <memory> // IWYU pragma: keep
+#include "cmStringAlgorithms.h"
 
 class cmLocalGenerator;
 
 cmInstallFilesGenerator::cmInstallFilesGenerator(
-  std::vector<std::string> const& files, const char* dest, bool programs,
-  const char* file_permissions, std::vector<std::string> const& configurations,
-  const char* component, MessageLevel message, bool exclude_from_all,
-  const char* rename, bool optional)
+  std::vector<std::string> const& files, std::string const& dest,
+  bool programs, std::string file_permissions,
+  std::vector<std::string> const& configurations, std::string const& component,
+  MessageLevel message, bool exclude_from_all, std::string rename,
+  bool optional, cmListFileBacktrace backtrace)
   : cmInstallGenerator(dest, configurations, component, message,
-                       exclude_from_all)
+                       exclude_from_all, std::move(backtrace))
   , LocalGenerator(nullptr)
   , Files(files)
-  , FilePermissions(file_permissions)
-  , Rename(rename)
+  , FilePermissions(std::move(file_permissions))
+  , Rename(std::move(rename))
   , Programs(programs)
   , Optional(optional)
 {
-  // We need per-config actions if the destination has generator expressions.
-  if (cmGeneratorExpression::Find(Destination) != std::string::npos) {
+  // We need per-config actions if the destination and rename have generator
+  // expressions.
+  if (cmGeneratorExpression::Find(this->Destination) != std::string::npos) {
+    this->ActionsPerConfig = true;
+  }
+  if (cmGeneratorExpression::Find(this->Rename) != std::string::npos) {
     this->ActionsPerConfig = true;
   }
 
-  // We need per-config actions if any files have generator expressions.
-  for (std::vector<std::string>::const_iterator i = files.begin();
-       !this->ActionsPerConfig && i != files.end(); ++i) {
-    if (cmGeneratorExpression::Find(*i) != std::string::npos) {
-      this->ActionsPerConfig = true;
+  // We need per-config actions if any directories have generator expressions.
+  if (!this->ActionsPerConfig) {
+    for (std::string const& file : files) {
+      if (cmGeneratorExpression::Find(file) != std::string::npos) {
+        this->ActionsPerConfig = true;
+        break;
+      }
     }
   }
 }
 
-cmInstallFilesGenerator::~cmInstallFilesGenerator()
-{
-}
+cmInstallFilesGenerator::~cmInstallFilesGenerator() = default;
 
-void cmInstallFilesGenerator::Compute(cmLocalGenerator* lg)
+bool cmInstallFilesGenerator::Compute(cmLocalGenerator* lg)
 {
   this->LocalGenerator = lg;
+  return true;
 }
 
 std::string cmInstallFilesGenerator::GetDestination(
   std::string const& config) const
 {
-  cmGeneratorExpression ge;
-  return ge.Parse(this->Destination)->Evaluate(this->LocalGenerator, config);
+  return cmGeneratorExpression::Evaluate(this->Destination,
+                                         this->LocalGenerator, config);
+}
+
+std::string cmInstallFilesGenerator::GetRename(std::string const& config) const
+{
+  return cmGeneratorExpression::Evaluate(this->Rename, this->LocalGenerator,
+                                         config);
+}
+
+std::vector<std::string> cmInstallFilesGenerator::GetFiles(
+  std::string const& config) const
+{
+  std::vector<std::string> files;
+  if (this->ActionsPerConfig) {
+    for (std::string const& f : this->Files) {
+      cmExpandList(
+        cmGeneratorExpression::Evaluate(f, this->LocalGenerator, config),
+        files);
+    }
+  } else {
+    files = this->Files;
+  }
+  return files;
 }
 
 void cmInstallFilesGenerator::AddFilesInstallRule(
@@ -64,7 +92,7 @@ void cmInstallFilesGenerator::AddFilesInstallRule(
     os, this->GetDestination(config),
     (this->Programs ? cmInstallType_PROGRAMS : cmInstallType_FILES), files,
     this->Optional, this->FilePermissions.c_str(), no_dir_permissions,
-    this->Rename.c_str(), nullptr, indent);
+    this->GetRename(config).c_str(), nullptr, indent);
 }
 
 void cmInstallFilesGenerator::GenerateScriptActions(std::ostream& os,
@@ -80,12 +108,6 @@ void cmInstallFilesGenerator::GenerateScriptActions(std::ostream& os,
 void cmInstallFilesGenerator::GenerateScriptForConfig(
   std::ostream& os, const std::string& config, Indent indent)
 {
-  std::vector<std::string> files;
-  cmGeneratorExpression ge;
-  for (std::string const& f : this->Files) {
-    std::unique_ptr<cmCompiledGeneratorExpression> cge = ge.Parse(f);
-    cmSystemTools::ExpandListArgument(
-      cge->Evaluate(this->LocalGenerator, config), files);
-  }
+  std::vector<std::string> files = this->GetFiles(config);
   this->AddFilesInstallRule(os, config, indent, files);
 }

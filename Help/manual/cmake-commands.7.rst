@@ -17,13 +17,15 @@ These commands are always available.
 
    /command/break
    /command/cmake_host_system_information
+   /command/cmake_language
    /command/cmake_minimum_required
    /command/cmake_parse_arguments
+   /command/cmake_path
    /command/cmake_policy
    /command/configure_file
    /command/continue
-   /command/elseif
    /command/else
+   /command/elseif
    /command/endforeach
    /command/endfunction
    /command/endif
@@ -53,9 +55,9 @@ These commands are always available.
    /command/option
    /command/return
    /command/separate_arguments
+   /command/set
    /command/set_directory_properties
    /command/set_property
-   /command/set
    /command/site_name
    /command/string
    /command/unset
@@ -100,8 +102,6 @@ These commands are available only in CMake projects.
    /command/link_libraries
    /command/load_cache
    /command/project
-   /command/qt_wrap_cpp
-   /command/qt_wrap_ui
    /command/remove_definitions
    /command/set_source_files_properties
    /command/set_target_properties
@@ -114,6 +114,7 @@ These commands are available only in CMake projects.
    /command/target_link_directories
    /command/target_link_libraries
    /command/target_link_options
+   /command/target_precompile_headers
    /command/target_sources
    /command/try_compile
    /command/try_run
@@ -145,9 +146,10 @@ These commands are available only in CTest scripts.
 Deprecated Commands
 ===================
 
-These commands are deprecated since CMake version 3.0.
-They are available only for backward compatibility.
-Do not use them in new code.
+These commands are deprecated and are only made available to maintain
+backward compatibility.  The documentation of each command states the
+CMake version in which it was deprecated.  Do not use these commands
+in new code.
 
 .. toctree::
    :maxdepth: 1
@@ -161,6 +163,8 @@ Do not use them in new code.
    /command/load_command
    /command/make_directory
    /command/output_required_files
+   /command/qt_wrap_cpp
+   /command/qt_wrap_ui
    /command/remove
    /command/subdir_depends
    /command/subdirs

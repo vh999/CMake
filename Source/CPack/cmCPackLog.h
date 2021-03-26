@@ -1,13 +1,14 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCPackLog_h
-#define cmCPackLog_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
+#include <memory>
 #include <ostream>
-#include <string.h>
 #include <string>
+
+#include <string.h>
 
 #define cmCPack_Log(ctSelf, logType, msg)                                     \
   do {                                                                        \
@@ -25,6 +26,9 @@ class cmCPackLog
 public:
   cmCPackLog();
   ~cmCPackLog();
+
+  cmCPackLog(const cmCPackLog&) = delete;
+  cmCPackLog& operator=(const cmCPackLog&) = delete;
 
   enum __log_tags
   {
@@ -93,13 +97,13 @@ public:
   void SetErrorPrefix(std::string const& pfx) { this->ErrorPrefix = pfx; }
 
 private:
-  bool Verbose;
-  bool Debug;
-  bool Quiet;
+  bool Verbose = false;
+  bool Debug = false;
+  bool Quiet = false;
 
-  bool NewLine;
+  bool NewLine = true;
 
-  int LastTag;
+  int LastTag = cmCPackLog::NOTAG;
 
   std::string Prefix;
   std::string OutputPrefix;
@@ -108,13 +112,11 @@ private:
   std::string WarningPrefix;
   std::string ErrorPrefix;
 
-  std::ostream* DefaultOutput;
-  std::ostream* DefaultError;
+  std::ostream* DefaultOutput = nullptr;
+  std::ostream* DefaultError = nullptr;
 
-  std::string LogOutputFileName;
-  std::ostream* LogOutput;
-  // Do we need to cleanup log output stream
-  bool LogOutputCleanup;
+  std::ostream* LogOutput = nullptr;
+  std::unique_ptr<std::ostream> LogOutputStream;
 };
 
 class cmCPackLogWrite
@@ -136,5 +138,3 @@ inline std::ostream& operator<<(std::ostream& os, const cmCPackLogWrite& c)
   os.flush();
   return os;
 }
-
-#endif

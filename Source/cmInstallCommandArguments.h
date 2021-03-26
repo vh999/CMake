@@ -1,25 +1,22 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmInstallCommandArguments_h
-#define cmInstallCommandArguments_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
 #include <string>
 #include <vector>
 
-#include "cmCommandArgumentsHelper.h"
+#include "cmArgumentParser.h"
 
-class cmInstallCommandArguments
+class cmInstallCommandArguments : public cmArgumentParser<void>
 {
 public:
-  cmInstallCommandArguments(const std::string& defaultComponent);
+  cmInstallCommandArguments(std::string defaultComponent);
   void SetGenericArguments(cmInstallCommandArguments* args)
   {
     this->GenericArguments = args;
   }
-  void Parse(const std::vector<std::string>* args,
-             std::vector<std::string>* unconsumedArgs);
 
   // Compute destination path.and check permissions
   bool Finalize();
@@ -37,31 +34,25 @@ public:
   bool HasNamelinkComponent() const;
   const std::string& GetType() const;
 
-  // once HandleDirectoryMode() is also switched to using
-  // cmInstallCommandArguments then these two functions can become non-static
-  // private member functions without arguments
   static bool CheckPermissions(const std::string& onePerm, std::string& perm);
-  cmCommandArgumentsHelper Parser;
-  cmCommandArgumentGroup ArgumentGroup;
 
 private:
-  cmInstallCommandArguments(); // disabled
-  cmCAString Destination;
-  cmCAString Component;
-  cmCAString NamelinkComponent;
-  cmCAEnabler ExcludeFromAll;
-  cmCAString Rename;
-  cmCAStringVector Permissions;
-  cmCAStringVector Configurations;
-  cmCAEnabler Optional;
-  cmCAEnabler NamelinkOnly;
-  cmCAEnabler NamelinkSkip;
-  cmCAString Type;
+  std::string Destination;
+  std::string Component;
+  std::string NamelinkComponent;
+  bool ExcludeFromAll = false;
+  std::string Rename;
+  std::vector<std::string> Permissions;
+  std::vector<std::string> Configurations;
+  bool Optional = false;
+  bool NamelinkOnly = false;
+  bool NamelinkSkip = false;
+  std::string Type;
 
   std::string DestinationString;
   std::string PermissionsString;
 
-  cmInstallCommandArguments* GenericArguments;
+  cmInstallCommandArguments* GenericArguments = nullptr;
   static const char* PermissionsTable[];
   static const std::string EmptyString;
   std::string DefaultComponentName;
@@ -80,5 +71,3 @@ public:
 private:
   std::vector<std::string> IncludeDirs;
 };
-
-#endif

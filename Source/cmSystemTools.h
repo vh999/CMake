@@ -1,20 +1,22 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmSystemTools_h
-#define cmSystemTools_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
+
+#include <cstddef>
+#include <functional>
+#include <string>
+#include <vector>
+
+#include <cm/string_view>
+
+#include "cmsys/Process.h"
+#include "cmsys/SystemTools.hxx" // IWYU pragma: export
 
 #include "cmCryptoHash.h"
 #include "cmDuration.h"
 #include "cmProcessOutput.h"
-#include "cmsys/Process.h"
-#include "cmsys/SystemTools.hxx" // IWYU pragma: export
-#include <stddef.h>
-#include <string>
-#include <vector>
-
-class cmSystemToolsFileTime;
 
 /** \class cmSystemTools
  * \brief A collection of useful functions for CMake.
@@ -25,18 +27,8 @@ class cmSystemToolsFileTime;
 class cmSystemTools : public cmsys::SystemTools
 {
 public:
-  typedef cmsys::SystemTools Superclass;
-  typedef cmProcessOutput::Encoding Encoding;
-
-  /** Expand out any arguments in the vector that have ; separated
-   *  strings into multiple arguments.  A new vector is created
-   *  containing the expanded versions of all arguments in argsIn.
-   */
-  static void ExpandList(std::vector<std::string> const& argsIn,
-                         std::vector<std::string>& argsOut);
-  static void ExpandListArgument(const std::string& arg,
-                                 std::vector<std::string>& argsOut,
-                                 bool emptyArgs = false);
+  using Superclass = cmsys::SystemTools;
+  using Encoding = cmProcessOutput::Encoding;
 
   /**
    * Look for and replace registry values in a string
@@ -44,119 +36,80 @@ public:
   static void ExpandRegistryValues(std::string& source,
                                    KeyWOW64 view = KeyWOW64_Default);
 
-  ///! Escape quotes in a string.
-  static std::string EscapeQuotes(const std::string& str);
-
   /** Map help document name to file name.  */
-  static std::string HelpFileName(std::string);
+  static std::string HelpFileName(cm::string_view);
 
-  /**
-   * Returns a string that has whitespace removed from the start and the end.
-   */
-  static std::string TrimWhitespace(const std::string& s);
-
-  typedef void (*MessageCallback)(const char*, const char*, bool&, void*);
+  using MessageCallback = std::function<void(const std::string&, const char*)>;
   /**
    *  Set the function used by GUIs to display error messages
    *  Function gets passed: message as a const char*,
-   *  title as a const char*, and a reference to bool that when
-   *  set to false, will disable further messages (cancel).
+   *  title as a const char*.
    */
-  static void SetMessageCallback(MessageCallback f,
-                                 void* clientData = nullptr);
+  static void SetMessageCallback(MessageCallback f);
 
   /**
    * Display an error message.
    */
-  static void Error(const char* m, const char* m2 = nullptr,
-                    const char* m3 = nullptr, const char* m4 = nullptr);
+  static void Error(const std::string& m);
 
   /**
    * Display a message.
    */
-  static void Message(const char* m, const char* title = nullptr);
+  static void Message(const std::string& m, const char* title = nullptr);
 
-  typedef void (*OutputCallback)(const char*, size_t length, void*);
+  using OutputCallback = std::function<void(std::string const&)>;
 
-  ///! Send a string to stdout
-  static void Stdout(const char* s);
-  static void Stdout(const char* s, size_t length);
-  static void SetStdoutCallback(OutputCallback, void* clientData = nullptr);
+  //! Send a string to stdout
+  static void Stdout(const std::string& s);
+  static void SetStdoutCallback(OutputCallback f);
 
-  ///! Send a string to stderr
-  static void Stderr(const char* s);
-  static void Stderr(const char* s, size_t length);
-  static void SetStderrCallback(OutputCallback, void* clientData = nullptr);
+  //! Send a string to stderr
+  static void Stderr(const std::string& s);
+  static void SetStderrCallback(OutputCallback f);
 
-  typedef bool (*InterruptCallback)(void*);
-  static void SetInterruptCallback(InterruptCallback f,
-                                   void* clientData = nullptr);
+  using InterruptCallback = std::function<bool()>;
+  static void SetInterruptCallback(InterruptCallback f);
   static bool GetInterruptFlag();
 
-  ///! Return true if there was an error at any point.
+  //! Return true if there was an error at any point.
   static bool GetErrorOccuredFlag()
   {
     return cmSystemTools::s_ErrorOccured ||
       cmSystemTools::s_FatalErrorOccured || GetInterruptFlag();
   }
-  ///! If this is set to true, cmake stops processing commands.
+  //! If this is set to true, cmake stops processing commands.
   static void SetFatalErrorOccured()
   {
     cmSystemTools::s_FatalErrorOccured = true;
   }
   static void SetErrorOccured() { cmSystemTools::s_ErrorOccured = true; }
-  ///! Return true if there was an error at any point.
+  //! Return true if there was an error at any point.
   static bool GetFatalErrorOccured()
   {
     return cmSystemTools::s_FatalErrorOccured || GetInterruptFlag();
   }
 
-  ///! Set the error occurred flag and fatal error back to false
+  //! Set the error occurred flag and fatal error back to false
   static void ResetErrorOccuredFlag()
   {
     cmSystemTools::s_FatalErrorOccured = false;
     cmSystemTools::s_ErrorOccured = false;
   }
 
-  /**
-   * Does a string indicates that CMake/CPack/CTest internally
-   * forced this value. This is not the same as On, but this
-   * may be considered as "internally switched on".
-   */
-  static bool IsInternallyOn(const char* val);
-  /**
-   * does a string indicate a true or on value ? This is not the same
-   * as ifdef.
-   */
-  static bool IsOn(const char* val);
-  static bool IsOn(const std::string& val);
-
-  /**
-   * does a string indicate a false or off value ? Note that this is
-   * not the same as !IsOn(...) because there are a number of
-   * ambiguous values such as "/usr/local/bin" a path will result in
-   * IsON and IsOff both returning false. Note that the special path
-   * NOTFOUND, *-NOTFOUND or IGNORE will cause IsOff to return true.
-   */
-  static bool IsOff(const char* val);
-  static bool IsOff(const std::string& val);
-
-  ///! Return true if value is NOTFOUND or ends in -NOTFOUND.
-  static bool IsNOTFOUND(const char* value);
-  ///! Return true if the path is a framework
-  static bool IsPathToFramework(const char* value);
+  //! Return true if the path is a framework
+  static bool IsPathToFramework(const std::string& value);
 
   static bool DoesFileExistWithExtensions(
-    const char* name, const std::vector<std::string>& sourceExts);
+    const std::string& name, const std::vector<std::string>& sourceExts);
 
   /**
    * Check if the given file exists in one of the parent directory of the
    * given file or directory and if it does, return the name of the file.
    * Toplevel specifies the top-most directory to where it will look.
    */
-  static std::string FileExistsInParentDirectories(const char* fname,
-                                                   const char* directory,
-                                                   const char* toplevel);
+  static std::string FileExistsInParentDirectories(
+    const std::string& fname, const std::string& directory,
+    const std::string& toplevel);
 
   static void Glob(const std::string& directory, const std::string& regexp,
                    std::vector<std::string>& files);
@@ -175,22 +128,56 @@ public:
   static bool SimpleGlob(const std::string& glob,
                          std::vector<std::string>& files, int type = 0);
 
-  ///! Copy a file.
-  static bool cmCopyFile(const char* source, const char* destination);
-  static bool CopyFileIfDifferent(const char* source, const char* destination);
+  enum class CopyWhen
+  {
+    Always,
+    OnlyIfDifferent,
+  };
+  enum class CopyResult
+  {
+    Success,
+    Failure,
+  };
+
+  /** Copy a file. */
+  static bool CopySingleFile(const std::string& oldname,
+                             const std::string& newname);
+  static CopyResult CopySingleFile(std::string const& oldname,
+                                   std::string const& newname, CopyWhen when,
+                                   std::string* err = nullptr);
+
+  enum class Replace
+  {
+    Yes,
+    No,
+  };
+  enum class RenameResult
+  {
+    Success,
+    NoReplace,
+    Failure,
+  };
 
   /** Rename a file or directory within a single disk volume (atomic
       if possible).  */
-  static bool RenameFile(const char* oldname, const char* newname);
+  static bool RenameFile(const std::string& oldname,
+                         const std::string& newname);
+  static RenameResult RenameFile(std::string const& oldname,
+                                 std::string const& newname, Replace replace,
+                                 std::string* err = nullptr);
 
-  ///! Compute the hash of a file
+  //! Rename a file if contents are different, delete the source otherwise
+  static void MoveFileIfDifferent(const std::string& source,
+                                  const std::string& destination);
+
+  //! Compute the hash of a file
   static std::string ComputeFileHash(const std::string& source,
                                      cmCryptoHash::Algo algo);
 
   /** Compute the md5sum of a string.  */
   static std::string ComputeStringMD5(const std::string& input);
 
-  ///! Get the SHA thumbprint for a certificate file
+  //! Get the SHA thumbprint for a certificate file
   static std::string ComputeCertificateThumbprint(const std::string& source);
 
   /**
@@ -222,7 +209,7 @@ public:
     OUTPUT_FORWARD,
     OUTPUT_PASSTHROUGH
   };
-  static bool RunSingleCommand(const char* command,
+  static bool RunSingleCommand(const std::string& command,
                                std::string* captureStdOut = nullptr,
                                std::string* captureStdErr = nullptr,
                                int* retVal = nullptr,
@@ -248,7 +235,7 @@ public:
   /**
    * Parse arguments out of a single string command
    */
-  static std::vector<std::string> ParseArguments(const char* command);
+  static std::vector<std::string> ParseArguments(const std::string& command);
 
   /** Parse arguments out of a windows command line string.  */
   static void ParseWindowsCommandLine(const char* command,
@@ -272,32 +259,9 @@ public:
 
   static size_t CalculateCommandLineLengthLimit();
 
-  static void EnableMessages() { s_DisableMessages = false; }
-  static void DisableMessages() { s_DisableMessages = true; }
   static void DisableRunCommandOutput() { s_DisableRunCommandOutput = true; }
   static void EnableRunCommandOutput() { s_DisableRunCommandOutput = false; }
   static bool GetRunCommandOutput() { return s_DisableRunCommandOutput; }
-
-  /**
-   * Some constants for different file formats.
-   */
-  enum FileFormat
-  {
-    NO_FILE_FORMAT = 0,
-    C_FILE_FORMAT,
-    CXX_FILE_FORMAT,
-    FORTRAN_FILE_FORMAT,
-    JAVA_FILE_FORMAT,
-    CUDA_FILE_FORMAT,
-    HEADER_FILE_FORMAT,
-    RESOURCE_FILE_FORMAT,
-    DEFINITION_FILE_FORMAT,
-    STATIC_LIBRARY_FILE_FORMAT,
-    SHARED_LIBRARY_FILE_FORMAT,
-    MODULE_FILE_FORMAT,
-    OBJECT_FILE_FORMAT,
-    UNKNOWN_FILE_FORMAT
-  };
 
   enum CompareOp
   {
@@ -329,11 +293,6 @@ public:
    */
   static int strverscmp(std::string const& lhs, std::string const& rhs);
 
-  /**
-   * Determine the file type based on the extension
-   */
-  static FileFormat GetFileFormat(const char* ext);
-
   /** Windows if this is true, the CreateProcess in RunCommand will
    *  not show new console windows when running programs.
    */
@@ -349,9 +308,6 @@ public:
                          cmDuration timeout, std::vector<char>& out,
                          std::vector<char>& err);
 
-  /** Split a string on its newlines into multiple lines.  Returns
-      false only if the last line stored had no newline.  */
-  static bool Split(const char* s, std::vector<std::string>& l);
   static void SetForceUnixPaths(bool v) { s_ForceUnixPaths = v; }
   static bool GetForceUnixPaths() { return s_ForceUnixPaths; }
 
@@ -362,7 +318,13 @@ public:
   // ConvertToRunCommandPath does not use s_ForceUnixPaths and should
   // be used when RunCommand is called from cmake, because the
   // running cmake needs paths to be in its format
-  static std::string ConvertToRunCommandPath(const char* path);
+  static std::string ConvertToRunCommandPath(const std::string& path);
+
+  /**
+   * For windows computes the long path for the given path,
+   * For Unix, it is a noop
+   */
+  static void ConvertToLongPath(std::string& path);
 
   /** compute the relative path from local to remote.  local must
       be a directory.  remote can be a file or a directory.
@@ -375,13 +337,15 @@ public:
   static std::string RelativePath(std::string const& local,
                                   std::string const& remote);
 
-  /** Joins two paths while collapsing x/../ parts
-   * For example CollapseCombinedPath("a/b/c", "../../d") results in "a/d"
+  /**
+   * Convert the given remote path to a relative path with respect to
+   * the given local path.  Both paths must use forward slashes and not
+   * already be escaped or quoted.
    */
-  static std::string CollapseCombinedPath(std::string const& dir,
-                                          std::string const& file);
+  static std::string ForceToRelativePath(std::string const& local_path,
+                                         std::string const& remote_path);
 
-#ifdef CMAKE_BUILD_WITH_CMAKE
+#ifndef CMAKE_BOOTSTRAP
   /** Remove an environment variable */
   static bool UnsetEnv(const char* value);
 
@@ -398,10 +362,12 @@ public:
       original environment. */
   class SaveRestoreEnvironment
   {
-    CM_DISABLE_COPY(SaveRestoreEnvironment)
   public:
     SaveRestoreEnvironment();
     ~SaveRestoreEnvironment();
+
+    SaveRestoreEnvironment(SaveRestoreEnvironment const&) = delete;
+    SaveRestoreEnvironment& operator=(SaveRestoreEnvironment const&) = delete;
 
   private:
     std::vector<std::string> Env;
@@ -411,21 +377,34 @@ public:
   /** Setup the environment to enable VS 8 IDE output.  */
   static void EnableVSConsoleOutput();
 
+  enum cmTarAction
+  {
+    TarActionCreate,
+    TarActionList,
+    TarActionExtract,
+    TarActionNone
+  };
+
   /** Create tar */
   enum cmTarCompression
   {
     TarCompressGZip,
     TarCompressBZip2,
     TarCompressXZ,
+    TarCompressZstd,
     TarCompressNone
   };
-  static bool ListTar(const char* outFileName, bool verbose);
-  static bool CreateTar(const char* outFileName,
+
+  static bool ListTar(const std::string& outFileName,
+                      const std::vector<std::string>& files, bool verbose);
+  static bool CreateTar(const std::string& outFileName,
                         const std::vector<std::string>& files,
                         cmTarCompression compressType, bool verbose,
                         std::string const& mtime = std::string(),
-                        std::string const& format = std::string());
-  static bool ExtractTar(const char* inFileName, bool verbose);
+                        std::string const& format = std::string(),
+                        int compressionLevel = 0);
+  static bool ExtractTar(const std::string& inFileName,
+                         const std::vector<std::string>& files, bool verbose);
   // This should be called first thing in main
   // it will keep child processes from inheriting the
   // stdin and stdout of this process.  This is important
@@ -433,15 +412,7 @@ public:
   // not get stuck waiting for all the output on the pipes.
   static void DoNotInheritStdPipes();
 
-  /** Copy the file create/access/modify times from the file named by
-      the first argument to that named by the second.  */
-  static bool CopyFileTime(const char* fromFile, const char* toFile);
-
-  /** Save and restore file times.  */
-  static cmSystemToolsFileTime* FileTimeNew();
-  static void FileTimeDelete(cmSystemToolsFileTime*);
-  static bool FileTimeGet(const char* fname, cmSystemToolsFileTime* t);
-  static bool FileTimeSet(const char* fname, cmSystemToolsFileTime* t);
+  static void EnsureStdPipes();
 
   /** Random seed generation.  */
   static unsigned int RandomSeed();
@@ -457,6 +428,10 @@ public:
   static std::string const& GetCMakeCursesCommand();
   static std::string const& GetCMClDepsCommand();
   static std::string const& GetCMakeRoot();
+  static std::string const& GetHTMLDoc();
+
+  /** Get the CWD mapped through the KWSys translation map.  */
+  static std::string GetCurrentWorkingDirectory();
 
   /** Echo a message in color using KWSys's Terminal cprintf.  */
   static void MakefileColorEcho(int color, const char* message, bool newLine,
@@ -473,6 +448,7 @@ public:
   /** Try to set the RPATH in an ELF binary.  */
   static bool ChangeRPath(std::string const& file, std::string const& oldRPath,
                           std::string const& newRPath,
+                          bool removeEnvironmentRPath,
                           std::string* emsg = nullptr,
                           bool* changed = nullptr);
 
@@ -485,15 +461,11 @@ public:
   static bool CheckRPath(std::string const& file, std::string const& newRPath);
 
   /** Remove a directory; repeat a few times in case of locked files.  */
-  static bool RepeatedRemoveDirectory(const char* dir);
+  static bool RepeatedRemoveDirectory(const std::string& dir);
 
-  /** Tokenize a string */
-  static std::vector<std::string> tokenize(const std::string& str,
-                                           const std::string& sep);
-
-  /** Convert string to long. Expected that the whole string is an integer */
-  static bool StringToLong(const char* str, long* value);
-  static bool StringToULong(const char* str, unsigned long* value);
+  /** Encode a string as a URL.  */
+  static std::string EncodeURL(std::string const& in,
+                               bool escapeSlashes = true);
 
 #ifdef _WIN32
   struct WindowsFileRetry
@@ -502,6 +474,7 @@ public:
     unsigned int Delay;
   };
   static WindowsFileRetry GetWindowsFileRetry();
+  static WindowsFileRetry GetWindowsDirectoryRetry();
 #endif
 
   /** Get the real path for a given path, removing all symlinks.
@@ -516,23 +489,22 @@ public:
   /** Create a symbolic link if the platform supports it.  Returns whether
       creation succeeded. */
   static bool CreateSymlink(const std::string& origName,
-                            const std::string& newName);
+                            const std::string& newName,
+                            std::string* errorMessage = nullptr);
+
+  /** Create a hard link if the platform supports it.  Returns whether
+      creation succeeded. */
+  static bool CreateLink(const std::string& origName,
+                         const std::string& newName,
+                         std::string* errorMessage = nullptr);
+
+  /** Get the system name. */
+  static cm::string_view GetSystemName();
 
 private:
   static bool s_ForceUnixPaths;
   static bool s_RunCommandHideConsole;
   static bool s_ErrorOccured;
   static bool s_FatalErrorOccured;
-  static bool s_DisableMessages;
   static bool s_DisableRunCommandOutput;
-  static MessageCallback s_MessageCallback;
-  static OutputCallback s_StdoutCallback;
-  static OutputCallback s_StderrCallback;
-  static InterruptCallback s_InterruptCallback;
-  static void* s_MessageCallbackClientData;
-  static void* s_StdoutCallbackClientData;
-  static void* s_StderrCallbackClientData;
-  static void* s_InterruptCallbackClientData;
 };
-
-#endif

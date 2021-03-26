@@ -6,15 +6,18 @@ Generates Visual Studio 9 2008 project files.
 Platform Selection
 ^^^^^^^^^^^^^^^^^^
 
-The :variable:`CMAKE_GENERATOR_PLATFORM` variable may be set, perhaps
-via the :manual:`cmake(1)` ``-A`` option, to specify a target platform
-name (architecture).  For example:
+The default target platform name (architecture) is ``Win32``.
 
-* ``cmake -G "Visual Studio 9 2008" -A Win32``
-* ``cmake -G "Visual Studio 9 2008" -A x64``
-* ``cmake -G "Visual Studio 9 2008" -A Itanium``
-* ``cmake -G "Visual Studio 9 2008" -A <WinCE-SDK>``
-  (Specify a target platform matching a Windows CE SDK name.)
+.. versionadded:: 3.1
+  The :variable:`CMAKE_GENERATOR_PLATFORM` variable may be set, perhaps
+  via the :manual:`cmake(1)` ``-A`` option, to specify a target platform
+  name (architecture).  For example:
+
+  * ``cmake -G "Visual Studio 9 2008" -A Win32``
+  * ``cmake -G "Visual Studio 9 2008" -A x64``
+  * ``cmake -G "Visual Studio 9 2008" -A Itanium``
+  * ``cmake -G "Visual Studio 9 2008" -A <WinCE-SDK>``
+    (Specify a target platform matching a Windows CE SDK name.)
 
 For compatibility with CMake versions prior to 3.1, one may specify
 a target platform name optionally at the end of the generator name.

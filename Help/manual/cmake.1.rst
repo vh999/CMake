@@ -16,6 +16,9 @@ Synopsis
  `Build a Project`_
   cmake --build <dir> [<options>] [-- <build-tool-options>]
 
+ `Install a Project`_
+  cmake --install <dir> [<options>]
+
  `Open a Project`_
   cmake --open <dir>
 
@@ -39,8 +42,8 @@ buildsystem generator CMake.  The above `Synopsis`_ lists various actions
 the tool can perform as described in sections below.
 
 To build a software project with CMake, `Generate a Project Buildsystem`_.
-Optionally use **cmake** to `Build a Project`_ or just run the
-corresponding build tool (e.g. ``make``) directly.  **cmake** can also
+Optionally use **cmake** to `Build a Project`_, `Install a Project`_ or just
+run the corresponding build tool (e.g. ``make``) directly.  **cmake** can also
 be used to `View Help`_.
 
 The other actions are meant for use by software developers writing
@@ -169,12 +172,12 @@ Options
 ``-L[A][H]``
  List non-advanced cached variables.
 
- List cache variables will run CMake and list all the variables from
- the CMake cache that are not marked as INTERNAL or ADVANCED.  This
- will effectively display current CMake settings, which can then be
- changed with -D option.  Changing some of the variables may result
- in more variables being created.  If A is specified, then it will
- display also advanced variables.  If H is specified, it will also
+ List ``CACHE`` variables will run CMake and list all the variables from
+ the CMake ``CACHE`` that are not marked as ``INTERNAL`` or :prop_cache:`ADVANCED`.
+ This will effectively display current CMake settings, which can then be
+ changed with ``-D`` option.  Changing some of the variables may result
+ in more variables being created.  If ``A`` is specified, then it will
+ display also advanced variables.  If ``H`` is specified, it will also
  display help for each variable.
 
 ``-N``
@@ -197,10 +200,35 @@ Options
  from the top of a binary tree for a CMake project it will dump
  additional information such as the cache, log files etc.
 
-``--debug-trycompile``
- Do not delete the try_compile build tree. Only useful on one try_compile at a time.
+``--log-level=<ERROR|WARNING|NOTICE|STATUS|VERBOSE|DEBUG|TRACE>``
+ Set the log level.
 
- Do not delete the files and directories created for try_compile
+ The :command:`message` command will only output messages of the specified
+ log level or higher.  The default log level is ``STATUS``.
+
+ To make a log level persist between CMake runs, set
+ :variable:`CMAKE_MESSAGE_LOG_LEVEL` as a cache variable instead.
+ If both the command line option and the variable are given, the command line
+ option takes precedence.
+
+ For backward compatibility reasons, ``--loglevel`` is also accepted as a
+ synonym for this option.
+
+``--log-context``
+ Enable the :command:`message` command outputting context attached to each
+ message.
+
+ This option turns on showing context for the current CMake run only.
+ To make showing the context persistent for all subsequent CMake runs, set
+ :variable:`CMAKE_MESSAGE_CONTEXT_SHOW` as a cache variable instead.
+ When this command line option is given, :variable:`CMAKE_MESSAGE_CONTEXT_SHOW`
+ is ignored.
+
+``--debug-trycompile``
+ Do not delete the :command:`try_compile` build tree.
+ Only useful on one :command:`try_compile` at a time.
+
+ Do not delete the files and directories created for :command:`try_compile`
  calls.  This is useful in debugging failed try_compiles.  It may
  however change the results of the try-compiles as old junk from a
  previous try-compile may cause a different test to either pass or
@@ -211,7 +239,15 @@ Options
  Put cmake in a debug mode.
 
  Print extra information during the cmake run like stack traces with
- message(send_error ) calls.
+ :command:`message(SEND_ERROR)` calls.
+
+``--debug-find``
+ Put cmake find commands in a debug mode.
+
+ Print extra find call information during the cmake run to standard
+ error. Output is designed for human consumption and not for parsing.
+ See also the :variable:`CMAKE_FIND_DEBUG_MODE` variable for debugging
+ a more local part of the project.
 
 ``--trace``
  Put cmake in trace mode.
@@ -223,10 +259,86 @@ Options
 
  Like ``--trace``, but with variables expanded.
 
+``--trace-format=<format>``
+ Put cmake in trace mode and sets the trace output format.
+
+ ``<format>`` can be one of the following values.
+
+   ``human``
+     Prints each trace line in a human-readable format. This is the
+     default format.
+
+   ``json-v1``
+     Prints each line as a separate JSON document. Each document is
+     separated by a newline ( ``\n`` ). It is guaranteed that no
+     newline characters will be present inside a JSON document.
+
+     JSON trace format:
+
+     .. code-block:: json
+
+       {
+         "file": "/full/path/to/the/CMake/file.txt",
+         "line": 0,
+         "cmd": "add_executable",
+         "args": ["foo", "bar"],
+         "time": 1579512535.9687231,
+         "frame": 2
+       }
+
+     The members are:
+
+     ``file``
+       The full path to the CMake source file where the function
+       was called.
+
+     ``line``
+       The line in ``file`` of the function call.
+
+     ``defer``
+       Optional member that is present when the function call was deferred
+       by :command:`cmake_language(DEFER)`.  If present, its value is a
+       string containing the deferred call ``<id>``.
+
+     ``cmd``
+       The name of the function that was called.
+
+     ``args``
+       A string list of all function parameters.
+
+     ``time``
+       Timestamp (seconds since epoch) of the function call.
+
+     ``frame``
+       Stack frame depth of the function that was called.
+
+     Additionally, the first JSON document outputted contains the
+     ``version`` key for the current major and minor version of the
+
+     JSON trace format:
+
+     .. code-block:: json
+
+       {
+         "version": {
+           "major": 1,
+           "minor": 1
+         }
+       }
+
+     The members are:
+
+     ``version``
+       Indicates the version of the JSON format. The version has a
+       major and minor components following semantic version conventions.
+
 ``--trace-source=<file>``
  Put cmake in trace mode, but output only lines of a specified file.
 
  Multiple options are allowed.
+
+``--trace-redirect=<file>``
+ Put cmake in trace mode and redirect trace output to a file instead of stderr.
 
 ``--warn-uninitialized``
  Warn about uninitialized values.
@@ -234,9 +346,9 @@ Options
  Print a warning when an uninitialized variable is used.
 
 ``--warn-unused-vars``
- Warn about unused variables.
-
- Find variables that are declared or set, but not used.
+ Does nothing.  In CMake versions 3.2 and below this enabled warnings about
+ unused variables.  In CMake versions 3.3 through 3.18 the option was broken.
+ In CMake 3.19 and above the option has been removed.
 
 ``--no-warn-unused-cli``
  Don't warn about command line options.
@@ -248,8 +360,42 @@ Options
  Find problems with variable usage in system files.
 
  Normally, unused and uninitialized variables are searched for only
- in CMAKE_SOURCE_DIR and CMAKE_BINARY_DIR.  This flag tells CMake to
- warn about other files as well.
+ in :variable:`CMAKE_SOURCE_DIR` and :variable:`CMAKE_BINARY_DIR`.
+ This flag tells CMake to warn about other files as well.
+
+``--profiling-output=<path>``
+ Used in conjunction with ``--profiling-format`` to output to a given path.
+
+``--profiling-format=<file>``
+ Enable the output of profiling data of CMake script in the given format.
+
+ This can aid performance analysis of CMake scripts executed. Third party
+ applications should be used to process the output into human readable format.
+
+ Currently supported values are:
+ ``google-trace`` Outputs in Google Trace Format, which can be parsed by the
+ about:tracing tab of Google Chrome or using a plugin for a tool like Trace
+ Compass.
+
+``--preset <preset>``, ``--preset=<preset>``
+ Reads a :manual:`preset <cmake-presets(7)>` from
+ ``<path-to-source>/CMakePresets.json`` and
+ ``<path-to-source>/CMakeUserPresets.json``. The preset specifies the
+ generator and the build directory, and optionally a list of variables and
+ other arguments to pass to CMake. The current working directory must contain
+ CMake preset files. The :manual:`CMake GUI <cmake-gui(1)>` can
+ also recognize ``CMakePresets.json`` and ``CMakeUserPresets.json`` files. For
+ full details on these files, see :manual:`cmake-presets(7)`.
+
+ The presets are read before all other command line options. The options
+ specified by the preset (variables, generator, etc.) can all be overridden by
+ manually specifying them on the command line. For example, if the preset sets
+ a variable called ``MYVAR`` to ``1``, but the user sets it to ``2`` with a
+ ``-D`` argument, the value ``2`` is preferred.
+
+``--list-presets, --list-presets=<[configure | build | test | all]>``
+ Lists the available presets. If no option is specified only configure presets
+ will be listed. The current working directory must contain CMake preset files.
 
 .. _`Build Tool Mode`:
 
@@ -261,23 +407,38 @@ project binary tree:
 
 .. code-block:: shell
 
-  cmake --build <dir> [<options>] [-- <build-tool-options>]
+  cmake --build [<dir> | --preset <preset>] [<options>] [-- <build-tool-options>]
 
 This abstracts a native build tool's command-line interface with the
 following options:
 
 ``--build <dir>``
-  Project binary directory to be built.  This is required and must be first.
+  Project binary directory to be built.  This is required (unless a preset
+  is specified) and must be first.
 
-``-j [<jobs>], --parallel [<jobs>]``
+``--preset <preset>``, ``--preset=<preset>``
+  Use a build preset to specify build options. The project binary directory
+  is inferred from the ``configurePreset`` key. The current working directory
+  must contain CMake preset files.
+  See :manual:`preset <cmake-presets(7)>` for more details.
+
+``--list-presets``
+  Lists the available build presets. The current working directory must
+  contain CMake preset files.
+
+``--parallel [<jobs>], -j [<jobs>]``
   The maximum number of concurrent processes to use when building.
   If ``<jobs>`` is omitted the native build tool's default number is used.
 
   The :envvar:`CMAKE_BUILD_PARALLEL_LEVEL` environment variable, if set,
   specifies a default parallel level when this option is not given.
 
-``--target <tgt>``
-  Build ``<tgt>`` instead of default targets.  May only be specified once.
+  Some native build tools always build in parallel.  The use of ``<jobs>``
+  value of ``1`` can be used to limit to a single job.
+
+``--target <tgt>..., -t <tgt>...``
+  Build ``<tgt>`` instead of the default target.  Multiple targets may be
+  given, separated by spaces.
 
 ``--config <cfg>``
   For multi-configuration tools, choose configuration ``<cfg>``.
@@ -289,11 +450,57 @@ following options:
 ``--use-stderr``
   Ignored.  Behavior is default in CMake >= 3.0.
 
+``--verbose, -v``
+  Enable verbose output - if supported - including the build commands to be
+  executed.
+
+  This option can be omitted if :envvar:`VERBOSE` environment variable or
+  :variable:`CMAKE_VERBOSE_MAKEFILE` cached variable is set.
+
+
 ``--``
   Pass remaining options to the native tool.
 
 Run ``cmake --build`` with no options for quick help.
 
+Install a Project
+=================
+
+CMake provides a command-line signature to install an already-generated
+project binary tree:
+
+.. code-block:: shell
+
+  cmake --install <dir> [<options>]
+
+This may be used after building a project to run installation without
+using the generated build system or the native build tool.
+The options are:
+
+``--install <dir>``
+  Project binary directory to install. This is required and must be first.
+
+``--config <cfg>``
+  For multi-configuration generators, choose configuration ``<cfg>``.
+
+``--component <comp>``
+  Component-based install. Only install component ``<comp>``.
+
+``--default-directory-permissions <permissions>``
+  Default directory install permissions. Permissions in format ``<u=rwx,g=rx,o=rx>``.
+
+``--prefix <prefix>``
+  Override the installation prefix, :variable:`CMAKE_INSTALL_PREFIX`.
+
+``--strip``
+  Strip before installing.
+
+``-v, --verbose``
+  Enable verbose output.
+
+  This option can be omitted if :envvar:`VERBOSE` environment variable is set.
+
+Run ``cmake --install`` with no options for quick help.
 
 Open a Project
 ==============
@@ -313,12 +520,16 @@ Run a Script
 
 .. code-block:: shell
 
-  cmake [{-D <var>=<value>}...] -P <cmake-script-file>
+  cmake [{-D <var>=<value>}...] -P <cmake-script-file> [-- <unparsed-options>...]
 
 Process the given cmake file as a script written in the CMake
 language.  No configure or generate step is performed and the cache
-is not modified.  If variables are defined using -D, this must be
-done before the -P argument.
+is not modified.  If variables are defined using ``-D``, this must be
+done before the ``-P`` argument.
+
+Any options after ``--`` are not parsed by CMake, but they are still included
+in the set of :variable:`CMAKE_ARGV<n> <CMAKE_ARGV0>` variables passed to the
+script (including the ``--`` itself).
 
 
 Run a Command-Line Tool
@@ -367,30 +578,69 @@ Available commands are:
       A list of strings with all the extra generators compatible with
       the generator.
 
+  ``fileApi``
+    Optional member that is present when the :manual:`cmake-file-api(7)`
+    is available.  The value is a JSON object with one member:
+
+    ``requests``
+      A JSON array containing zero or more supported file-api requests.
+      Each request is a JSON object with members:
+
+      ``kind``
+        Specifies one of the supported :ref:`file-api object kinds`.
+
+      ``version``
+        A JSON array whose elements are each a JSON object containing
+        ``major`` and ``minor`` members specifying non-negative integer
+        version components.
+
   ``serverMode``
     ``true`` if cmake supports server-mode and ``false`` otherwise.
+    Always false since CMake 3.20.
+
+``cat <files>...``
+  Concatenate files and print on the standard output.
 
 ``chdir <dir> <cmd> [<arg>...]``
   Change the current working directory and run a command.
 
-``compare_files <file1> <file2>``
+``compare_files [--ignore-eol] <file1> <file2>``
   Check if ``<file1>`` is same as ``<file2>``. If files are the same,
-  then returns 0, if not it returns 1.
+  then returns ``0``, if not it returns ``1``.  In case of invalid
+  arguments, it returns 2. The ``--ignore-eol`` option
+  implies line-wise comparison and ignores LF/CRLF differences.
 
 ``copy <file>... <destination>``
   Copy files to ``<destination>`` (either file or directory).
   If multiple files are specified, the ``<destination>`` must be
   directory and it must exist. Wildcards are not supported.
+  ``copy`` does follow symlinks. That means it does not copy symlinks,
+  but the files or directories it point to.
 
 ``copy_directory <dir>... <destination>``
-  Copy directories to ``<destination>`` directory.
+  Copy content of ``<dir>...`` directories to ``<destination>`` directory.
   If ``<destination>`` directory does not exist it will be created.
+  ``copy_directory`` does follow symlinks.
 
 ``copy_if_different <file>... <destination>``
   Copy files to ``<destination>`` (either file or directory) if
   they have changed.
   If multiple files are specified, the ``<destination>`` must be
   directory and it must exist.
+  ``copy_if_different`` does follow symlinks.
+
+``create_symlink <old> <new>``
+  Create a symbolic link ``<new>`` naming ``<old>``.
+
+  .. note::
+    Path to where ``<new>`` symbolic link will be created has to exist beforehand.
+
+``create_hardlink <old> <new>``
+  Create a hard link ``<new>`` naming ``<old>``.
+
+  .. note::
+    Path to where ``<new>`` hard link will be created has to exist beforehand.
+    ``<old>`` has to exist beforehand.
 
 ``echo [<string>...]``
   Displays arguments as text.
@@ -403,6 +653,9 @@ Available commands are:
 
 ``environment``
   Display the current environment variables.
+
+``false``
+  Do nothing, with an exit code of 1.
 
 ``make_directory <dir>...``
   Create ``<dir>`` directories.  If necessary, create parent
@@ -446,17 +699,37 @@ Available commands are:
      7a0b54896fe5e70cca6dd643ad6f672614b189bf26f8153061c4d219474b05dad08c4e729af9f4b009f1a1a280cb625454bf587c690f4617c27e3aebdf3b7a2d  file2.txt
 
 ``remove [-f] <file>...``
-  Remove the file(s). If any of the listed files already do not
-  exist, the command returns a non-zero exit code, but no message
-  is logged. The ``-f`` option changes the behavior to return a
-  zero exit code (i.e. success) in such situations instead.
+  .. deprecated:: 3.17
 
-``remove_directory <dir>``
-  Remove a directory and its contents.  If a directory does
-  not exist it will be silently ignored.
+  Remove the file(s). The planned behaviour was that if any of the
+  listed files already do not exist, the command returns a non-zero exit code,
+  but no message is logged. The ``-f`` option changes the behavior to return a
+  zero exit code (i.e. success) in such situations instead.
+  ``remove`` does not follow symlinks. That means it remove only symlinks
+  and not files it point to.
+
+  The implementation was buggy and always returned 0. It cannot be fixed without
+  breaking backwards compatibility. Use ``rm`` instead.
+
+``remove_directory <dir>...``
+  .. deprecated:: 3.17
+
+  Remove ``<dir>`` directories and their contents. If a directory does
+  not exist it will be silently ignored.  If ``<dir>`` is a symlink to
+  a directory, just the symlink will be removed.
+  Use ``rm`` instead.
 
 ``rename <oldname> <newname>``
-  Rename a file or directory (on one volume).
+  Rename a file or directory (on one volume). If file with the ``<newname>`` name
+  already exists, then it will be silently replaced.
+
+``rm [-rRf] <file> <dir>...``
+  Remove the files ``<file>`` or directories ``dir``.
+  Use ``-r`` or ``-R`` to remove directories and their contents recursively.
+  If any of the listed files/directories do not exist, the command returns a
+  non-zero exit code, but no message is logged. The ``-f`` option changes
+  the behavior to return a zero exit code (i.e. success) in such
+  situations instead.
 
 ``server``
   Launch :manual:`cmake-server(7)` mode.
@@ -464,39 +737,61 @@ Available commands are:
 ``sleep <number>...``
   Sleep for given number of seconds.
 
-``tar [cxt][vf][zjJ] file.tar [<options>] [--] [<file>...]``
+``tar [cxt][vf][zjJ] file.tar [<options>] [--] [<pathname>...]``
   Create or extract a tar or zip archive.  Options are:
 
-  ``--``
-    Stop interpreting options and treat all remaining arguments
-    as file names even if they start in ``-``.
+  ``c``
+    Create a new archive containing the specified files.
+    If used, the ``<pathname>...`` argument is mandatory.
+  ``x``
+    Extract to disk from the archive.
+    The ``<pathname>...`` argument could be used to extract only selected files
+    or directories.
+    When extracting selected files or directories, you must provide their exact
+    names including the path, as printed by list (``-t``).
+  ``t``
+    List archive contents.
+    The ``<pathname>...`` argument could be used to list only selected files
+    or directories.
+  ``v``
+    Produce verbose output.
+  ``z``
+    Compress the resulting archive with gzip.
+  ``j``
+    Compress the resulting archive with bzip2.
+  ``J``
+    Compress the resulting archive with XZ.
+  ``--zstd``
+    Compress the resulting archive with Zstandard.
   ``--files-from=<file>``
     Read file names from the given file, one per line.
     Blank lines are ignored.  Lines may not start in ``-``
     except for ``--add-file=<name>`` to add files whose
     names start in ``-``.
-  ``--mtime=<date>``
-    Specify modification time recorded in tarball entries.
   ``--format=<format>``
     Specify the format of the archive to be created.
     Supported formats are: ``7zip``, ``gnutar``, ``pax``,
     ``paxr`` (restricted pax, default), and ``zip``.
+  ``--mtime=<date>``
+    Specify modification time recorded in tarball entries.
+  ``--``
+    Stop interpreting options and treat all remaining arguments
+    as file names, even if they start with ``-``.
+
 
 ``time <command> [<args>...]``
   Run command and display elapsed time.
 
-``touch <file>``
-  Touch a file.
+``touch <file>...``
+  Creates ``<file>`` if file do not exist.
+  If ``<file>`` exists, it is changing ``<file>`` access and modification times.
 
-``touch_nocreate <file>``
+``touch_nocreate <file>...``
   Touch a file if it exists but do not create it.  If a file does
   not exist it will be silently ignored.
 
-``create_symlink <old> <new>``
-  Create a symbolic link ``<new>`` naming ``<old>``.
-
-.. note::
-  Path to where ``<new>`` symbolic link will be created has to exist beforehand.
+``true``
+  Do nothing, with an exit code of 0.
 
 Windows-specific Command-Line Tools
 -----------------------------------
@@ -550,6 +845,11 @@ with one of the following options:
 
 .. include:: OPTIONS_HELP.txt
 
+To view the presets available for a project, use
+
+.. code-block:: shell
+
+  cmake <source-dir> --list-presets
 
 See Also
 ========

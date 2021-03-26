@@ -1,14 +1,13 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmExtraCodeBlocksGenerator_h
-#define cmExtraCodeBlocksGenerator_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmExternalMakefileProjectGenerator.h"
-
 #include <string>
 #include <vector>
+
+#include "cmExternalMakefileProjectGenerator.h"
 
 class cmGeneratorTarget;
 class cmLocalGenerator;
@@ -42,13 +41,12 @@ private:
 
   std::string GetCBCompilerId(const cmMakefile* mf);
   int GetCBTargetType(cmGeneratorTarget* target);
-  std::string BuildMakeCommand(const std::string& make, const char* makefile,
+  std::string BuildMakeCommand(const std::string& make,
+                               const std::string& makefile,
                                const std::string& target,
                                const std::string& makeFlags);
   void AppendTarget(cmXMLWriter& xml, const std::string& targetName,
-                    cmGeneratorTarget* target, const char* make,
-                    const cmLocalGenerator* lg, const char* compiler,
+                    cmGeneratorTarget* target, const std::string& make,
+                    const cmLocalGenerator* lg, const std::string& compiler,
                     const std::string& makeFlags);
 };
-
-#endif

@@ -5,6 +5,8 @@
 FindXalanC
 -----------
 
+.. versionadded:: 3.5
+
 Find the Apache Xalan-C++ XSL transform processor headers and libraries.
 
 Imported targets
@@ -47,9 +49,9 @@ The following cache variables may also be set:
 function(_XalanC_GET_VERSION  version_hdr)
     file(STRINGS ${version_hdr} _contents REGEX "^[ \t]*#define XALAN_VERSION_.*")
     if(_contents)
-        string(REGEX REPLACE "[^*]*#define XALAN_VERSION_MAJOR[ \t]+([0-9]+).*" "\\1" XalanC_MAJOR "${_contents}")
-        string(REGEX REPLACE "[^*]*#define XALAN_VERSION_MINOR[ \t]+([0-9]+).*" "\\1" XalanC_MINOR "${_contents}")
-        string(REGEX REPLACE "[^*]*#define XALAN_VERSION_REVISION[ \t]+([0-9]+).*" "\\1" XalanC_PATCH "${_contents}")
+        string(REGEX REPLACE "[^*]*#define XALAN_VERSION_MAJOR[ \t(]+([0-9]+).*" "\\1" XalanC_MAJOR "${_contents}")
+        string(REGEX REPLACE "[^*]*#define XALAN_VERSION_MINOR[ \t(]+([0-9]+).*" "\\1" XalanC_MINOR "${_contents}")
+        string(REGEX REPLACE "[^*]*#define XALAN_VERSION_REVISION[ \t(]+([0-9]+).*" "\\1" XalanC_PATCH "${_contents}")
 
         if(NOT XalanC_MAJOR MATCHES "^[0-9]+$")
             message(FATAL_ERROR "Version parsing failed for XALAN_VERSION_MAJOR!")
@@ -76,7 +78,7 @@ find_path(XalanC_INCLUDE_DIR
           DOC "Xalan-C++ include directory")
 mark_as_advanced(XalanC_INCLUDE_DIR)
 
-if(XalanC_INCLUDE_DIR)
+if(XalanC_INCLUDE_DIR AND EXISTS "${XalanC_INCLUDE_DIR}/xalanc/Include/XalanVersion.hpp")
   _XalanC_GET_VERSION("${XalanC_INCLUDE_DIR}/xalanc/Include/XalanVersion.hpp")
 endif()
 

@@ -5,10 +5,14 @@
 FindXercesC
 -----------
 
+.. versionadded:: 3.1
+
 Find the Apache Xerces-C++ validating XML parser headers and libraries.
 
 Imported targets
 ^^^^^^^^^^^^^^^^
+
+.. versionadded:: 3.5
 
 This module defines the following :prop_tgt:`IMPORTED` targets:
 
@@ -38,6 +42,9 @@ The following cache variables may also be set:
   the directory containing the Xerces headers
 ``XercesC_LIBRARY``
   the Xerces library
+
+.. versionadded:: 3.4
+  Debug and Release variants are found separately.
 #]=======================================================================]
 
 # Written by Roger Leigh <rleigh@codelibre.net>
@@ -74,17 +81,21 @@ find_path(XercesC_INCLUDE_DIR
           DOC "Xerces-C++ include directory")
 mark_as_advanced(XercesC_INCLUDE_DIR)
 
-if(XercesC_INCLUDE_DIR)
+if(XercesC_INCLUDE_DIR AND EXISTS "${XercesC_INCLUDE_DIR}/xercesc/util/XercesVersion.hpp")
   _XercesC_GET_VERSION("${XercesC_INCLUDE_DIR}/xercesc/util/XercesVersion.hpp")
 endif()
 
 if(NOT XercesC_LIBRARY)
   # Find all XercesC libraries
   find_library(XercesC_LIBRARY_RELEASE
-               NAMES "xerces-c" "xerces-c_${XercesC_VERSION_MAJOR}"
+               NAMES "xerces-c"
+                     "xerces-c_${XercesC_VERSION_MAJOR}"
+                     "xerces-c-${XercesC_VERSION_MAJOR}.${XercesC_VERSION_MINOR}"
                DOC "Xerces-C++ libraries (release)")
   find_library(XercesC_LIBRARY_DEBUG
-               NAMES "xerces-cd" "xerces-c_${XercesC_VERSION_MAJOR}D" "xerces-c_${XercesC_VERSION_MAJOR}_${XercesC_VERSION_MINOR}D"
+               NAMES "xerces-cd"
+                     "xerces-c_${XercesC_VERSION_MAJOR}D"
+                     "xerces-c_${XercesC_VERSION_MAJOR}_${XercesC_VERSION_MINOR}D"
                DOC "Xerces-C++ libraries (debug)")
   include(${CMAKE_CURRENT_LIST_DIR}/SelectLibraryConfigurations.cmake)
   select_library_configurations(XercesC)

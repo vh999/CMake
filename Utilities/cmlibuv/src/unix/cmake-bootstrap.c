@@ -1,6 +1,12 @@
 #include "uv.h"
 #include "internal.h"
 
+void uv__process_title_cleanup(void) {
+}
+
+void uv__threadpool_cleanup(void) {
+}
+
 int uv__tcp_nodelay(int fd, int on) {
   errno = EINVAL;
   return -1;
@@ -46,6 +52,7 @@ void uv__async_stop(uv_loop_t* loop) {
 }
 
 void uv__work_submit(uv_loop_t* loop, struct uv__work* w,
+                     enum uv__work_kind kind,
                      void (*work)(struct uv__work* w),
                      void (*done)(struct uv__work* w, int status)) {
   abort();
@@ -133,6 +140,23 @@ ssize_t uv__pwritev(int fd, const struct iovec *iov, int iovcnt,
 
 int uv__utimesat(int dirfd, const char* path, const struct timespec times[2],
                  int flags) {
+  errno = ENOSYS;
+  return -1;
+}
+
+int uv__statx(int dirfd,
+              const char* path,
+              int flags,
+              unsigned int mask,
+              struct uv__statx* statxbuf) {
+  errno = ENOSYS;
+  return -1;
+}
+
+ssize_t uv__fs_copy_file_range(int fd_in, ssize_t* off_in,
+                               int fd_out, ssize_t* off_out,
+                               size_t len, unsigned int flags)
+{
   errno = ENOSYS;
   return -1;
 }

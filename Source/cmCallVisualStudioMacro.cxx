@@ -4,6 +4,7 @@
 
 #include <sstream>
 
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
 
 #if defined(_MSC_VER)
@@ -35,22 +36,21 @@ static bool LogErrorsAsMessages;
 #    endif
 #  endif
 
-///! Use ReportHRESULT to make a cmSystemTools::Message after calling
-///! a COM method that may have failed.
+//! Use ReportHRESULT to make a cmSystemTools::Message after calling
+//! a COM method that may have failed.
 #  define ReportHRESULT(hr, context)                                          \
     if (FAILED(hr)) {                                                         \
       if (LogErrorsAsMessages) {                                              \
         std::ostringstream _hresult_oss;                                      \
         _hresult_oss.flags(std::ios::hex);                                    \
-        _hresult_oss << context << " failed HRESULT, hr = 0x" << hr           \
-                     << std::endl;                                            \
+        _hresult_oss << context << " failed HRESULT, hr = 0x" << hr << '\n';  \
         _hresult_oss.flags(std::ios::dec);                                    \
         _hresult_oss << __FILE__ << "(" << __LINE__ << ")";                   \
-        cmSystemTools::Message(_hresult_oss.str().c_str());                   \
+        cmSystemTools::Message(_hresult_oss.str());                           \
       }                                                                       \
     }
 
-///! Using the given instance of Visual Studio, call the named macro
+//! Using the given instance of Visual Studio, call the named macro
 HRESULT InstanceCallMacro(IDispatch* vsIDE, const std::string& macro,
                           const std::string& args)
 {
@@ -61,7 +61,8 @@ HRESULT InstanceCallMacro(IDispatch* vsIDE, const std::string& macro,
 
   if (0 != vsIDE) {
     DISPID dispid = (DISPID)-1;
-    OLECHAR* name = L"ExecuteCommand";
+    wchar_t execute_command[] = L"ExecuteCommand";
+    OLECHAR* name = execute_command;
 
     hr =
       vsIDE->GetIDsOfNames(IID_NULL, &name, 1, LOCALE_USER_DEFAULT, &dispid);
@@ -96,31 +97,37 @@ HRESULT InstanceCallMacro(IDispatch* vsIDE, const std::string& macro,
                          DISPATCH_METHOD, &params, &result, &excep, &arg);
 
       std::ostringstream oss;
-      oss << std::endl;
-      oss << "Invoke(ExecuteCommand)" << std::endl;
-      oss << "  Macro: " << macro << std::endl;
-      oss << "  Args: " << args << std::endl;
+      /* clang-format off */
+      oss << "\nInvoke(ExecuteCommand)\n"
+             "  Macro: " << macro << "\n"
+             "  Args: " << args << '\n';
+      /* clang-format on */
 
       if (DISP_E_EXCEPTION == hr) {
-        oss << "DISP_E_EXCEPTION EXCEPINFO:" << excep.wCode << std::endl;
-        oss << "  wCode: " << excep.wCode << std::endl;
-        oss << "  wReserved: " << excep.wReserved << std::endl;
+        /* clang-format off */
+        oss << "DISP_E_EXCEPTION EXCEPINFO:" << excep.wCode << "\n"
+               "  wCode: " << excep.wCode << "\n"
+               "  wReserved: " << excep.wReserved << '\n';
+        /* clang-format on */
         if (excep.bstrSource) {
           oss << "  bstrSource: " << (const char*)(_bstr_t)excep.bstrSource
-              << std::endl;
+              << '\n';
         }
         if (excep.bstrDescription) {
           oss << "  bstrDescription: "
-              << (const char*)(_bstr_t)excep.bstrDescription << std::endl;
+              << (const char*)(_bstr_t)excep.bstrDescription << '\n';
         }
         if (excep.bstrHelpFile) {
           oss << "  bstrHelpFile: " << (const char*)(_bstr_t)excep.bstrHelpFile
-              << std::endl;
+              << '\n';
         }
-        oss << "  dwHelpContext: " << excep.dwHelpContext << std::endl;
-        oss << "  pvReserved: " << excep.pvReserved << std::endl;
-        oss << "  pfnDeferredFillIn: " << excep.pfnDeferredFillIn << std::endl;
-        oss << "  scode: " << excep.scode << std::endl;
+        /* clang-format off */
+        oss << "  dwHelpContext: " << excep.dwHelpContext << "\n"
+               "  pvReserved: " << excep.pvReserved << "\n"
+               "  pfnDeferredFillIn: "
+            << reinterpret_cast<void*>(excep.pfnDeferredFillIn) << "\n"
+               "  scode: " << excep.scode << '\n';
+        /* clang-format on */
       }
 
       std::string exstr(oss.str());
@@ -133,14 +140,15 @@ HRESULT InstanceCallMacro(IDispatch* vsIDE, const std::string& macro,
   return hr;
 }
 
-///! Get the Solution object from the IDE object
+//! Get the Solution object from the IDE object
 HRESULT GetSolutionObject(IDispatch* vsIDE, IDispatchPtr& vsSolution)
 {
   HRESULT hr = E_POINTER;
 
   if (0 != vsIDE) {
     DISPID dispid = (DISPID)-1;
-    OLECHAR* name = L"Solution";
+    wchar_t solution[] = L"Solution";
+    OLECHAR* name = solution;
 
     hr =
       vsIDE->GetIDsOfNames(IID_NULL, &name, 1, LOCALE_USER_DEFAULT, &dispid);
@@ -176,14 +184,15 @@ HRESULT GetSolutionObject(IDispatch* vsIDE, IDispatchPtr& vsSolution)
   return hr;
 }
 
-///! Get the FullName property from the Solution object
+//! Get the FullName property from the Solution object
 HRESULT GetSolutionFullName(IDispatch* vsSolution, std::string& fullName)
 {
   HRESULT hr = E_POINTER;
 
   if (0 != vsSolution) {
     DISPID dispid = (DISPID)-1;
-    OLECHAR* name = L"FullName";
+    wchar_t full_name[] = L"FullName";
+    OLECHAR* name = full_name;
 
     hr = vsSolution->GetIDsOfNames(IID_NULL, &name, 1, LOCALE_USER_DEFAULT,
                                    &dispid);
@@ -220,7 +229,7 @@ HRESULT GetSolutionFullName(IDispatch* vsSolution, std::string& fullName)
   return hr;
 }
 
-///! Get the FullName property from the Solution object, given the IDE object
+//! Get the FullName property from the Solution object, given the IDE object
 HRESULT GetIDESolutionFullName(IDispatch* vsIDE, std::string& fullName)
 {
   IDispatchPtr vsSolution;
@@ -235,8 +244,8 @@ HRESULT GetIDESolutionFullName(IDispatch* vsIDE, std::string& fullName)
   return hr;
 }
 
-///! Get all running objects from the Windows running object table.
-///! Save them in a map by their display names.
+//! Get all running objects from the Windows running object table.
+//! Save them in a map by their display names.
 HRESULT GetRunningInstances(std::map<std::string, IUnknownPtr>& mrot)
 {
   // mrot == Map of the Running Object Table
@@ -292,8 +301,8 @@ HRESULT GetRunningInstances(std::map<std::string, IUnknownPtr>& mrot)
   return hr;
 }
 
-///! Do the two file names refer to the same Visual Studio solution? Or are
-///! we perhaps looking for any and all solutions?
+//! Do the two file names refer to the same Visual Studio solution? Or are
+//! we perhaps looking for any and all solutions?
 bool FilesSameSolution(const std::string& slnFile, const std::string& slnName)
 {
   if (slnFile == "ALL" || slnName == "ALL") {
@@ -310,9 +319,9 @@ bool FilesSameSolution(const std::string& slnFile, const std::string& slnName)
   return s1 == s2;
 }
 
-///! Find instances of Visual Studio with the given solution file
-///! open. Pass "ALL" for slnFile to gather all running instances
-///! of Visual Studio.
+//! Find instances of Visual Studio with the given solution file
+//! open. Pass "ALL" for slnFile to gather all running instances
+//! of Visual Studio.
 HRESULT FindVisualStudioInstances(const std::string& slnFile,
                                   std::vector<IDispatchPtr>& instances)
 {
@@ -324,8 +333,7 @@ HRESULT FindVisualStudioInstances(const std::string& slnFile,
   if (SUCCEEDED(hr)) {
     std::map<std::string, IUnknownPtr>::iterator it;
     for (it = mrot.begin(); it != mrot.end(); ++it) {
-      if (cmSystemTools::StringStartsWith(it->first.c_str(),
-                                          "!VisualStudio.DTE.")) {
+      if (cmHasLiteralPrefix(it->first, "!VisualStudio.DTE.")) {
         IDispatchPtr disp(it->second);
         if (disp != (IDispatch*)0) {
           std::string slnName;
@@ -384,8 +392,8 @@ int cmCallVisualStudioMacro::GetNumberOfRunningVisualStudioInstances(
   return count;
 }
 
-///! Get all running objects from the Windows running object table.
-///! Save them in a map by their display names.
+//! Get all running objects from the Windows running object table.
+//! Save them in a map by their display names.
 int cmCallVisualStudioMacro::CallMacro(const std::string& slnFile,
                                        const std::string& macro,
                                        const std::string& args,
@@ -446,7 +454,7 @@ int cmCallVisualStudioMacro::CallMacro(const std::string& slnFile,
   if (err && LogErrorsAsMessages) {
     std::ostringstream oss;
     oss << "cmCallVisualStudioMacro::CallMacro failed, err = " << err;
-    cmSystemTools::Message(oss.str().c_str());
+    cmSystemTools::Message(oss.str());
   }
 
   return 0;

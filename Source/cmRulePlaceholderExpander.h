@@ -1,8 +1,7 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
 
-#ifndef cmRulePlaceholderExpander_h
-#define cmRulePlaceholderExpander_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
@@ -15,9 +14,9 @@ class cmRulePlaceholderExpander
 {
 public:
   cmRulePlaceholderExpander(
-    std::map<std::string, std::string> const& compilers,
-    std::map<std::string, std::string> const& variableMappings,
-    std::string const& compilerSysroot, std::string const& linkerSysroot);
+    std::map<std::string, std::string> compilers,
+    std::map<std::string, std::string> variableMappings,
+    std::string compilerSysroot, std::string linkerSysroot);
 
   void SetTargetImpLib(std::string const& targetImpLib)
   {
@@ -28,36 +27,46 @@ public:
   // ExpandRuleVariables
   struct RuleVariables
   {
-    RuleVariables();
-    const char* CMTargetName;
-    const char* CMTargetType;
-    const char* TargetPDB;
-    const char* TargetCompilePDB;
-    const char* TargetVersionMajor;
-    const char* TargetVersionMinor;
-    const char* Language;
-    const char* Objects;
-    const char* Target;
-    const char* LinkLibraries;
-    const char* Source;
-    const char* AssemblySource;
-    const char* PreprocessedSource;
-    const char* Output;
-    const char* Object;
-    const char* ObjectDir;
-    const char* ObjectFileDir;
-    const char* Flags;
-    const char* ObjectsQuoted;
-    const char* SONameFlag;
-    const char* TargetSOName;
-    const char* TargetInstallNameDir;
-    const char* LinkFlags;
-    const char* Manifests;
-    const char* LanguageCompileFlags;
-    const char* Defines;
-    const char* Includes;
-    const char* DependencyFile;
-    const char* FilterPrefix;
+    const char* CMTargetName = nullptr;
+    const char* CMTargetType = nullptr;
+    const char* TargetPDB = nullptr;
+    const char* TargetCompilePDB = nullptr;
+    const char* TargetVersionMajor = nullptr;
+    const char* TargetVersionMinor = nullptr;
+    const char* Language = nullptr;
+    const char* AIXExports = nullptr;
+    const char* Objects = nullptr;
+    const char* Target = nullptr;
+    const char* LinkLibraries = nullptr;
+    const char* Source = nullptr;
+    const char* AssemblySource = nullptr;
+    const char* PreprocessedSource = nullptr;
+    const char* DynDepFile = nullptr;
+    const char* Output = nullptr;
+    const char* Object = nullptr;
+    const char* ObjectDir = nullptr;
+    const char* ObjectFileDir = nullptr;
+    const char* Flags = nullptr;
+    const char* ObjectsQuoted = nullptr;
+    const char* SONameFlag = nullptr;
+    const char* TargetSOName = nullptr;
+    const char* TargetInstallNameDir = nullptr;
+    const char* LinkFlags = nullptr;
+    const char* Manifests = nullptr;
+    const char* LanguageCompileFlags = nullptr;
+    const char* Defines = nullptr;
+    const char* Includes = nullptr;
+    const char* DependencyFile = nullptr;
+    const char* DependencyTarget = nullptr;
+    const char* FilterPrefix = nullptr;
+    const char* SwiftLibraryName = nullptr;
+    const char* SwiftModule = nullptr;
+    const char* SwiftModuleName = nullptr;
+    const char* SwiftOutputFileMap = nullptr;
+    const char* SwiftSources = nullptr;
+    const char* ISPCHeader = nullptr;
+    const char* Fatbinary = nullptr;
+    const char* RegisterFile = nullptr;
   };
 
   // Expand rule variables in CMake of the type found in language rules
@@ -78,5 +87,3 @@ private:
   std::string CompilerSysroot;
   std::string LinkerSysroot;
 };
-
-#endif

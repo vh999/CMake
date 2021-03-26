@@ -1,5 +1,5 @@
 
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 2.8.12)
 
 project(target_compile_definitions)
 
@@ -34,6 +34,7 @@ target_compile_definitions(consumer
     CONSUMER_LANG_$<COMPILE_LANGUAGE>
     LANG_IS_CXX=$<COMPILE_LANGUAGE:CXX>
     LANG_IS_C=$<COMPILE_LANGUAGE:C>
+    LANG_IS_C_OR_CXX=$<COMPILE_LANGUAGE:C,CXX>
 )
 if(CMAKE_GENERATOR MATCHES "Visual Studio|Xcode")
   target_compile_definitions(consumer

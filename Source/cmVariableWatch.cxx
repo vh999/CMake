@@ -2,30 +2,26 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmVariableWatch.h"
 
+#include <array>
 #include <memory>
 #include <utility>
 #include <vector>
 
-static const char* const cmVariableWatchAccessStrings[] = {
-  "READ_ACCESS",     "UNKNOWN_READ_ACCESS", "UNKNOWN_DEFINED_ACCESS",
-  "MODIFIED_ACCESS", "REMOVED_ACCESS",      "NO_ACCESS"
-};
-
-const char* cmVariableWatch::GetAccessAsString(int access_type)
+const std::string& cmVariableWatch::GetAccessAsString(int access_type)
 {
+  static const std::array<std::string, 6> cmVariableWatchAccessStrings = {
+    { "READ_ACCESS", "UNKNOWN_READ_ACCESS", "UNKNOWN_DEFINED_ACCESS",
+      "MODIFIED_ACCESS", "REMOVED_ACCESS", "NO_ACCESS" }
+  };
   if (access_type < 0 || access_type >= cmVariableWatch::NO_ACCESS) {
-    return "NO_ACCESS";
+    access_type = cmVariableWatch::NO_ACCESS;
   }
   return cmVariableWatchAccessStrings[access_type];
 }
 
-cmVariableWatch::cmVariableWatch()
-{
-}
+cmVariableWatch::cmVariableWatch() = default;
 
-cmVariableWatch::~cmVariableWatch()
-{
-}
+cmVariableWatch::~cmVariableWatch() = default;
 
 bool cmVariableWatch::AddWatch(const std::string& variable, WatchMethod method,
                                void* client_data /*=0*/,
@@ -70,8 +66,7 @@ bool cmVariableWatch::VariableAccessed(const std::string& variable,
                                        int access_type, const char* newValue,
                                        const cmMakefile* mf) const
 {
-  cmVariableWatch::StringToVectorOfPairs::const_iterator mit =
-    this->WatchMap.find(variable);
+  auto mit = this->WatchMap.find(variable);
   if (mit != this->WatchMap.end()) {
     // The strategy here is to copy the list of callbacks, and ignore
     // new callbacks that existing ones may add.
